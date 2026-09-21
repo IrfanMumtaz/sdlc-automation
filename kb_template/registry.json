@@ -1,0 +1,95 @@
+{
+  "features": {},
+  "product": {
+    "overview": {
+      "file": "product/overview.md",
+      "status": "template"
+    },
+    "users-and-personas": {
+      "file": "product/users-and-personas.md",
+      "status": "template"
+    },
+    "capabilities": {
+      "file": "product/capabilities.md",
+      "status": "template"
+    },
+    "domain-glossary": {
+      "file": "product/domain-glossary.md",
+      "status": "template"
+    },
+    "business-rules": {
+      "file": "product/business-rules.md",
+      "status": "template"
+    }
+  },
+  "architecture": {
+    "system-overview": {
+      "file": "architecture/system-overview.md",
+      "status": "template"
+    },
+    "service-boundaries": {
+      "file": "architecture/service-boundaries.md",
+      "status": "template"
+    },
+    "data-model": {
+      "file": "architecture/data-model.md",
+      "status": "template"
+    },
+    "tech-stack": {
+      "file": "architecture/tech-stack.md",
+      "status": "template"
+    }
+  },
+  "patterns": {
+    "api-conventions": {
+      "file": "patterns/api-conventions.md",
+      "tags": [
+        "api"
+      ],
+      "status": "template"
+    },
+    "auth-patterns": {
+      "file": "patterns/auth-patterns.md",
+      "tags": [
+        "auth",
+        "security"
+      ],
+      "status": "template"
+    },
+    "db-schema-conventions": {
+      "file": "patterns/db-schema-conventions.md",
+      "tags": [
+        "db",
+        "schema"
+      ],
+      "status": "template"
+    },
+    "design-system": {
+      "file": "patterns/design-system.md",
+      "tags": [
+        "design",
+        "visual",
+        "tokens",
+        "ui"
+      ],
+      "status": "template"
+    },
+    "error-handling": {
+      "file": "patterns/error-handling.md",
+      "tags": [
+        "errors",
+        "validation"
+      ],
+      "status": "template"
+    },
+    "ui-patterns": {
+      "file": "patterns/ui-patterns.md",
+      "tags": [
+        "ui",
+        "frontend",
+        "interaction"
+      ],
+      "status": "template"
+    }
+  }
+}
