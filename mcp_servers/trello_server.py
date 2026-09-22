@@ -6,6 +6,7 @@ the full Trello API surface. Every stage subagent starts it inline:
     sdlc mcp trello                    # get_ticket, post_ticket_event, advance_ticket
     sdlc mcp trello --attach-mockups   # + attach_mockup (UI/UX stage)
     sdlc mcp trello --summary          # + update_ticket_summary (PO stage)
+    sdlc mcp trello --test-report      # + post_test_report (Automated QA stage)
 """
 
 import argparse
@@ -30,6 +31,10 @@ MOCKUP_PNG_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\.png")
 SUMMARY_HEADER = "**Spec summary — written by the PO agent.**"
 SUMMARY_NOTE = "Anything above this line is kept; this section is rewritten whenever PO runs."
 MAX_DESCRIPTION = 16000  # Trello's limit is 16384
+MAX_COMMENT = 16000      # the same limit applies to comments
+
+# Automated QA's report opens with this, so it can never be read as an event comment.
+TEST_REPORT_HEADER = "**Test report — Automated QA.**"
 
 mcp = FastMCP("trello")
 
@@ -103,15 +108,34 @@ def update_ticket_summary(ticket_id: str, summary: str) -> str:
     return "Card description updated with the spec summary."
 
 
+def post_test_report(ticket_id: str, report: str) -> str:
+    """Post this run's test report on the Trello card as its own comment, so
+    the board shows what was tested and what failed. `report` is markdown: the
+    run (date, branch, commit, commands), per-level counts, every failed
+    scenario with expected and actual, what didn't run and why, the manual
+    scenarios left for the PO Tester, and the passed scenario IDs. It's posted
+    under a fixed header, so it's never read as an event; post the event
+    comment separately with post_ticket_event."""
+    text = f"{TEST_REPORT_HEADER}\n\n{report.strip()}"
+    if len(text) > MAX_COMMENT:
+        raise ValueError(f"the report is {len(text)} characters, over Trello's limit; list passed scenarios "
+                         f"as ID ranges (FLD-01–FLD-24) and keep the full detail for failures")
+    trello_client.add_comment(ticket_id, text)
+    return "Test report posted."
+
+
 def main():
     parser = argparse.ArgumentParser(prog="sdlc mcp trello")
     parser.add_argument("--attach-mockups", action="store_true", help="add attach_mockup (UI/UX stage)")
     parser.add_argument("--summary", action="store_true", help="add update_ticket_summary (PO stage)")
+    parser.add_argument("--test-report", action="store_true", help="add post_test_report (Automated QA stage)")
     args = parser.parse_args()
     if args.attach_mockups:
         mcp.tool()(attach_mockup)
     if args.summary:
         mcp.tool()(update_ticket_summary)
+    if args.test_report:
+        mcp.tool()(post_test_report)
     mcp.run()
 
 

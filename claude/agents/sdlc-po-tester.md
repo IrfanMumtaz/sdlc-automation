@@ -60,9 +60,10 @@ find goes back to the stage that owns it.
 3. `find_feature`; read `spec.md`, `definition.md`, `ux.md`,
    `test-scenarios.md` and `decisions.md`. If no feature is registered,
    escalate.
-4. Read the Automated QA evidence in `decisions.md` and the card's comments:
-   which scenarios passed, which were marked manual, which couldn't run.
-   Manual scenarios are yours to check.
+4. Read Automated QA's test report on the card and its entries in
+   `decisions.md`: which scenarios passed, which were marked manual, which
+   couldn't run. Manual scenarios are yours to check, and the UAT scenarios
+   in `test-scenarios.md` are your script for step 5.
 5. Check out `feature/<slug>` and bring the app up in Docker
    (`sdlc-code-workflow` §2, §3). Exercise the feature the way its persona
    would: the main path, then the failure paths the spec calls for. Use

@@ -241,8 +241,8 @@ stays with you.
 | Knowledge Base Writer | `sdlc-kb-writer` | the feature's docs and `decisions.md`, every project doc | `product/`, `architecture/`, `patterns/`, `registry.json` — the proposals earlier stages left, recorded or refused | Senior Developer / Solution Architect or UI/UX |
 | Senior Developer | `sdlc-senior-developer` | spec, `ux.md` and mockups, `technical.md`, `flow.md`, patterns, **the code** | **the product's code and its tests**, on `feature/<slug>`, committed and pushed | Code Analyst / Solution Architect, PO or UI/UX |
 | Code Analyst | `sdlc-code-analyst` | the branch's diff in every repository, the code it reaches, spec, design, business rules, patterns (reads only; runs no tests) | findings in `decisions.md`, prioritized P0–P3; only P0 bounces (never edits code) | Test Scenario Writer / Senior Developer |
-| Test Scenario Writer | `sdlc-test-scenario-writer` | spec, `flow.md`, `ux.md`, business rules, the code | `test-scenarios.md` — behaviour only, no automation code | Automated QA / PO or UI/UX |
-| Automated QA | `sdlc-automated-qa` | `test-scenarios.md`, `patterns/testing`, the branch | **test code in the repo**, the suite run in Docker, per-scenario evidence | PO Tester / Senior Developer or Test Scenario Writer |
+| Test Scenario Writer | `sdlc-test-scenario-writer` | spec, `definition.md`, `ux.md`, `technical.md`, `flow.md`, business rules, personas, the code | `test-scenarios.md` — field-level, unit, integration, system, end-to-end and UAT scenarios with IDs and an acceptance-criteria coverage table; behaviour only, no automation code | Automated QA / PO or UI/UX |
+| Automated QA | `sdlc-automated-qa` | `test-scenarios.md`, `patterns/testing`, the branch | **test code in the repo** for every scenario at every level, the whole suite run in Docker, a per-scenario test report on the card; any failing test goes back to Senior Developer | PO Tester / Senior Developer or Test Scenario Writer |
 | PO Tester | `sdlc-po-tester` | spec, `ux.md` and mockups, QA evidence, **the running app** | a verdict and evidence per acceptance criterion | Deploy / Senior Developer or PO |
 | Deploy | `sdlc-deploy` | the diff, architecture docs, the pushed branch | `deployment.md` (what's changing, rollback plan, approval request) | **Human** — it never deploys |
 
@@ -266,7 +266,8 @@ findings back.
   flags its MCP servers start with (`sdlc mcp kb ...`, `sdlc mcp trello ...`),
   not by prompts: `--allow` (feature docs it may write; only PO can create
   feature folders), `--append-decisions`, `--mockups` and `--attach-mockups`
-  (UI/UX only), `--project-write` (Knowledge Base Writer only). A subagent's
+  (UI/UX only), `--summary` (PO only), `--test-report` (Automated QA only),
+  `--project-write` (Knowledge Base Writer only). A subagent's
   `tools:` list controls built-in tools (Read, Bash, ...) but doesn't hide its
   own MCP servers' tools, so every server tool that isn't gated by a flag is
   read-only. The design stages (BA through Solution Architect) only read code.
@@ -396,7 +397,7 @@ To run one stage by hand: `@"sdlc-ba (agent)" ticket_id: <card id>`, then
 | `trello_client.py` | Thin REST wrapper; credentials go in a header so errors don't expose them |
 | `knowledge_base.py` | Bootstraps a project's knowledge base from `kb_template/`; lists project doc status |
 | `mcp_servers/kb_server.py` | Scoped KB tools: everyone reads; feature writes per role (`--allow`); `append_decision` with `--append-decisions`; `save_mockup` with `--mockups`; project writes and design asset import only with `--project-write` |
-| `mcp_servers/trello_server.py` | Scoped Trello tools (`get_ticket`, `post_ticket_event`, `advance_ticket`; `attach_mockup` with `--attach-mockups`) |
+| `mcp_servers/trello_server.py` | Scoped Trello tools (`get_ticket`, `post_ticket_event`, `advance_ticket`; `attach_mockup` with `--attach-mockups`, `update_ticket_summary` with `--summary`, `post_test_report` with `--test-report`) |
 | `mockup_render.py` | Renders a static HTML page to desktop and mobile PNGs with headless Chrome, with scripts and network blocked |
 | `claude/skills/sdlc/`, `claude/skills/kickoff/` | `/sdlc` dispatch loop and `/sdlc-kickoff` session |
 | `claude/agents/sdlc-*.md` | Pipeline stage agents: tools, MCP servers, steps, DoD, outcomes |

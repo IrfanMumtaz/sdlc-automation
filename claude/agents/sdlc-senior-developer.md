@@ -58,7 +58,9 @@ file under it directly, even though you can see it.
    `flow.md` and `decisions.md`. If no feature is registered, escalate. For
    UI work, look at the mockups `ux.md` names. If the card was bounced back
    from a later stage, the findings in `decisions.md` and the card's comments
-   are your first job.
+   are your first job. Failing tests Automated QA left on the branch are the
+   proof of a defect: fix the product until they pass, and never edit them.
+   If you believe one is wrong, say why in `decisions.md` and escalate.
 4. Read the code before changing it: how the modules this feature touches
    work today, and how the nearest existing feature does the same kind of
    thing. Match it.
