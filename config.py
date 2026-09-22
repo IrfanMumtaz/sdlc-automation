@@ -8,14 +8,15 @@ the same way git finds a repository; SDLC_PROJECT_DIR overrides that.
 
     <project>/
       .sdlc/config.json        Trello board and lists, concurrency and other settings (commit this)
-      .sdlc/.gitignore         keeps state/, design-workspace/ and .env out of git
-      .sdlc/.env               optional per-project Trello credentials
+      .sdlc/.env               this project's Trello key and token (gitignored, never commit)
+      .sdlc/.gitignore         keeps .env, state/, design-workspace/ and kickoff/ out of git
       .sdlc/state/             router bookkeeping (disposable)
       .sdlc/design-workspace/  /sdlc-kickoff's impeccable scratch folder
       knowledge-base/          the project's knowledge base (path configurable)
 
-Trello credentials come from the environment, then <project>/.sdlc/.env, then
-~/.config/sdlc/.env.
+Trello credentials belong to the project: TRELLO_KEY and TRELLO_TOKEN in
+<project>/.sdlc/.env, which `sdlc init` writes. Set in the environment, they
+win over the file (useful in CI). Nothing is read from outside the project.
 """
 
 import json
@@ -24,11 +25,13 @@ from pathlib import Path
 
 ENGINE_ROOT = Path(__file__).resolve().parent
 KB_TEMPLATE_DIR = ENGINE_ROOT / "kb_template"
-USER_CONFIG_DIR = Path.home() / ".config" / "sdlc"
-USER_ENV_FILE = USER_CONFIG_DIR / ".env"
 
 PROJECT_DIR_NAME = ".sdlc"
 PROJECT_CONFIG_NAME = "config.json"
+PROJECT_CREDENTIALS_NAME = ".env"
+# What .sdlc/.gitignore must hold. The credentials file comes first: it's the
+# one entry whose absence would put secrets in the project's repository.
+PROJECT_GITIGNORE = [PROJECT_CREDENTIALS_NAME, "state/", "design-workspace/", "kickoff/"]
 
 # --- Pipeline sequence, in order. This list IS the state machine. ---
 # Every project's board has one list per stage, with exactly these names,
@@ -100,16 +103,44 @@ PROJECT_DEFAULTS = {
 }
 
 
-def _load_dotenv(path):
-    """Read KEY=value lines from a .env file. Variables already set win."""
-    if not path.is_file():
-        return
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip())
+def _read_dotenv(path):
+    """KEY=value lines from a .env file, as a dict; empty when there's no file."""
+    values = {}
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                values[key.strip()] = value.strip()
+    return values
+
+
+def credentials_file(project_root):
+    return Path(project_root) / PROJECT_DIR_NAME / PROJECT_CREDENTIALS_NAME
+
+
+def trello_credentials(project_root):
+    """
+    (key, token) for the project at `project_root`: TRELLO_KEY and TRELLO_TOKEN
+    from the environment when set, otherwise from the project's .sdlc/.env.
+    Empty strings for whatever is missing.
+    """
+    saved = _read_dotenv(credentials_file(project_root)) if project_root else {}
+    return tuple(os.environ.get(name) or saved.get(name, "") for name in ("TRELLO_KEY", "TRELLO_TOKEN"))
+
+
+def ensure_gitignore(sdlc_dir):
+    """
+    Make sure <project>/.sdlc/.gitignore lists every PROJECT_GITIGNORE entry,
+    keeping any lines people added. Returns the entries it had to add.
+    """
+    path = Path(sdlc_dir) / ".gitignore"
+    lines = path.read_text().splitlines() if path.is_file() else []
+    missing = [entry for entry in PROJECT_GITIGNORE if entry not in {line.strip() for line in lines}]
+    if missing:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join([*lines, *missing]) + "\n")
+    return missing
 
 
 def find_project_root(start=None):
@@ -145,7 +176,6 @@ MODELS = {}
 KB_REPO_PATH = DESIGN_WORKSPACE_PATH = STATE_DIR = STATE_FILE = SEEN_COMMENTS_FILE = None
 
 if PROJECT_ROOT:
-    _load_dotenv(PROJECT_ROOT / PROJECT_DIR_NAME / ".env")
     _raw = json.loads((PROJECT_ROOT / PROJECT_DIR_NAME / PROJECT_CONFIG_NAME).read_text())
     PROJECT_SETTINGS = {**PROJECT_DEFAULTS, **_raw}
 
@@ -165,9 +195,7 @@ if PROJECT_ROOT:
     if PROJECT_SETTINGS["chrome_path"]:
         os.environ.setdefault("CHROME_PATH", PROJECT_SETTINGS["chrome_path"])
 
-_load_dotenv(USER_ENV_FILE)
-TRELLO_KEY = os.environ.get("TRELLO_KEY", "")
-TRELLO_TOKEN = os.environ.get("TRELLO_TOKEN", "")
+TRELLO_KEY, TRELLO_TOKEN = trello_credentials(PROJECT_ROOT)
 
 
 def resolve_stages(value):

@@ -15,8 +15,9 @@ It:
      (a backup is written to settings.json.sdlc-backup first). These include
      the docker, git and package-manager commands the coding stages run, which
      apply to every project; --no-dev-permissions leaves those out.
-  4. sets up Trello credentials in ~/.config/sdlc/.env, moving this folder's
-     .env there if it has one
+
+Trello credentials aren't installed here: they belong to each project, in its
+gitignored .sdlc/.env, and `sdlc init` asks for them.
 
 It never overwrites a file it didn't create: an existing agent, skill or
 command with the same name is reported and skipped.
@@ -34,7 +35,8 @@ HOME = Path.home()
 BIN_LINK = HOME / ".local" / "bin" / "sdlc"
 CLAUDE_DIR = HOME / ".claude"
 SETTINGS = CLAUDE_DIR / "settings.json"
-USER_ENV = HOME / ".config" / "sdlc" / ".env"
+# Where earlier versions kept Trello credentials for every project. No longer read.
+LEGACY_CREDENTIALS = [HOME / ".config" / "sdlc" / ".env", ENGINE / ".env"]
 
 PERMISSIONS = [
     "Bash(sdlc status)",
@@ -150,21 +152,12 @@ def install_permissions(with_dev=True):
         print("  skipped the coding stages' shell rules; those commands will ask each time")
 
 
-def install_credentials():
-    if USER_ENV.exists():
-        print(f"  credentials: {USER_ENV} exists")
-        return
-    USER_ENV.parent.mkdir(parents=True, exist_ok=True)
-    old = ENGINE / ".env"
-    if old.exists():
-        lines = [l for l in old.read_text().splitlines() if l.split("=", 1)[0].strip() in ("TRELLO_KEY", "TRELLO_TOKEN")]
-        USER_ENV.write_text("\n".join(lines) + "\n")
-        old.unlink()
-        print(f"  credentials: moved TRELLO_KEY/TRELLO_TOKEN from {old} to {USER_ENV}")
-    else:
-        USER_ENV.write_text("TRELLO_KEY=\nTRELLO_TOKEN=\n")
-        print(f"  credentials: fill in TRELLO_KEY and TRELLO_TOKEN in {USER_ENV}")
-    USER_ENV.chmod(0o600)
+def report_legacy_credentials():
+    """Credentials are per project now; point out files earlier versions used."""
+    for path in LEGACY_CREDENTIALS:
+        if path.exists():
+            print(f"  NOTE: {path} is no longer read. Trello credentials live in each project's "
+                  f".sdlc/.env: copy them there (or rerun `sdlc init` in the project), then delete this file.")
 
 
 def check_requirements():
@@ -189,7 +182,7 @@ def uninstall():
         settings["permissions"]["allow"] = [rule for rule in allow if rule not in removable]
         save_settings(settings)
         print(f"  removed permission rules from {SETTINGS}")
-    print(f"  kept {USER_ENV} (your Trello credentials); delete it yourself if you no longer need it")
+    print("  kept each project's .sdlc/.env (its Trello credentials); delete them yourself if you no longer need them")
 
 
 def main():
@@ -203,7 +196,7 @@ def main():
         return
     install_links()
     install_permissions(with_dev=not args.no_dev_permissions)
-    install_credentials()
+    report_legacy_credentials()
     check_requirements()
     print("Done. Restart Claude Code, then in a project folder run: sdlc init --board <Trello board URL>")
 

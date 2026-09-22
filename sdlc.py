@@ -19,7 +19,9 @@ install.py puts this on PATH as `sdlc`.
 import argparse
 import datetime
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -89,7 +91,20 @@ def ask_for_credentials(where):
              if not l.startswith(("TRELLO_KEY=", "TRELLO_TOKEN="))]
     where.write_text("\n".join([*lines, f"TRELLO_KEY={key}", f"TRELLO_TOKEN={token}"]) + "\n")
     where.chmod(0o600)
-    print(f"Credentials check out as Trello user '{member.get('username')}'; saved to {where}\n")
+    print(f"Credentials check out as Trello user '{member.get('username')}'; saved to {where} (gitignored)\n")
+
+
+def git_ignores(path):
+    """
+    False when `path` is inside a git repository that would commit it: it isn't
+    ignored, or it's already tracked. True otherwise, including outside a repo.
+    """
+    try:
+        result = subprocess.run(["git", "check-ignore", "-q", path.name], cwd=path.parent,
+                                capture_output=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    return result.returncode != 1  # 0 ignored, 1 not ignored or tracked, 128 not a repo
 
 
 def cmd_init(args):
@@ -101,12 +116,13 @@ def cmd_init(args):
     if existing and existing != root and not args.force:
         sys.exit(f"{root} is inside the SDLC project at {existing}. Run init there, or pass --force "
                  f"to create a separate project here.")
-    if args.project_credentials:
-        credentials_file = root / config.PROJECT_DIR_NAME / ".env"
-    else:
-        credentials_file = config.USER_ENV_FILE
+    sdlc_dir = root / config.PROJECT_DIR_NAME
+    # Ignore the credentials file before anything is written to it.
+    config.ensure_gitignore(sdlc_dir)
+    # This project's own credentials, never those of a project it sits inside.
+    config.TRELLO_KEY, config.TRELLO_TOKEN = config.trello_credentials(root)
     if args.reauth or not (config.TRELLO_KEY and config.TRELLO_TOKEN):
-        ask_for_credentials(credentials_file)
+        ask_for_credentials(config.credentials_file(root))
 
     config_path = root / config.PROJECT_DIR_NAME / config.PROJECT_CONFIG_NAME
     current = json.loads(config_path.read_text()) if config_path.is_file() else {}
@@ -142,10 +158,7 @@ def cmd_init(args):
         **{k: settings[k] for k in config.PROJECT_DEFAULTS},
     }
 
-    sdlc_dir = root / config.PROJECT_DIR_NAME
-    sdlc_dir.mkdir(exist_ok=True)
     config_path.write_text(json.dumps(project, indent=2) + "\n")
-    (sdlc_dir / ".gitignore").write_text("state/\ndesign-workspace/\nkickoff/\n.env\n")
     kb_root = (root / project["knowledge_base"]).resolve()
     created_kb = knowledge_base.bootstrap(kb_root)
 
@@ -155,7 +168,12 @@ def cmd_init(args):
           + f" — apply them by hand; cards without one run in list order")
     print(f"  knowledge base: {kb_root}" + (" (created from template)" if created_kb else ""))
     print(f"  settings: " + ", ".join(f"{k}={project[k]}" for k in config.PROJECT_DEFAULTS))
-    print("Commit .sdlc/config.json and the knowledge base with the project. Next: /sdlc-kickoff in Claude Code.")
+    credentials = config.credentials_file(root)
+    if credentials.is_file() and not git_ignores(credentials):
+        print(f"WARNING: git would commit {credentials}, which holds your Trello token. It's probably "
+              f"already tracked: `git rm --cached .sdlc/.env`, then revoke and replace the token.")
+    print("Commit .sdlc/config.json and the knowledge base with the project; .sdlc/.env stays out of git. "
+          "Next: /sdlc-kickoff in Claude Code.")
 
 
 def cmd_status(_args):
@@ -164,9 +182,19 @@ def cmd_status(_args):
     config.require_project()
     s = config.PROJECT_SETTINGS
     created_kb = knowledge_base.bootstrap(config.KB_REPO_PATH)
-    credentials = "found" if config.TRELLO_KEY and config.TRELLO_TOKEN else "MISSING"
+    credentials_file = config.credentials_file(config.PROJECT_ROOT)
+    if not (config.TRELLO_KEY and config.TRELLO_TOKEN):
+        credentials = (f"MISSING: run `sdlc init --board <board URL>` in a terminal, or put TRELLO_KEY "
+                       f"and TRELLO_TOKEN in {credentials_file}")
+    elif os.environ.get("TRELLO_KEY") and os.environ.get("TRELLO_TOKEN"):
+        credentials = "from the environment"
+    else:
+        credentials = "in .sdlc/.env"
     print(f"Project: {s['project']} ({config.PROJECT_ROOT})")
     print(f"Trello board: {s.get('trello_board_name', '?')} ({config.BOARD_ID}); credentials {credentials}")
+    if credentials_file.is_file() and not git_ignores(credentials_file):
+        print(f"WARNING: git would commit {credentials_file}, which holds a Trello token. Rerun `sdlc init` "
+              f"to fix .sdlc/.gitignore; if it's already tracked, `git rm --cached .sdlc/.env` and replace the token.")
     print("Settings: " + ", ".join(f"{k}={s[k]}" for k in config.PROJECT_DEFAULTS))
     print("Stage agents built: " + ", ".join(f"{role} ({name})" for role, name in config.AGENT_SUBAGENTS.items()))
     print("Stages this project runs: " + (", ".join(config.resolve_stages(config.STAGES)) if config.STAGES else "all built stages"))
@@ -370,9 +398,7 @@ def main():
     init.add_argument("--knowledge-base", dest="knowledge_base", help="knowledge base folder, relative to the project")
     init.add_argument("--max-active-agents", dest="max_active_agents", type=int)
     init.add_argument("--bounce-cap", dest="bounce_cap", type=int)
-    init.add_argument("--reauth", action="store_true", help="ask for Trello credentials again")
-    init.add_argument("--project-credentials", action="store_true",
-                      help="save the credentials in .sdlc/.env for this project instead of ~/.config/sdlc/.env")
+    init.add_argument("--reauth", action="store_true", help="ask for this project's Trello credentials again")
     init.add_argument("--force", action="store_true", help="allow a project inside another project")
 
     sub.add_parser("status", help="project settings and knowledge base status")

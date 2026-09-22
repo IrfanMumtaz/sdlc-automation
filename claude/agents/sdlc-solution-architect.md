@@ -15,7 +15,7 @@ mcpServers:
       type: stdio
       command: sdlc
       args: ["mcp", "kb", "--role", "Solution Architect", "--allow", "technical.md,flow.md", "--append-decisions"]
-maxTurns: 40
+maxTurns: 100
 omitClaudeMd: true
 color: purple
 model: opus

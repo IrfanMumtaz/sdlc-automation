@@ -82,7 +82,9 @@ context).
    - If `init` reports missing Trello credentials, it can't ask for them here
      (no terminal). Tell the user to run that same `sdlc init --board <url>`
      command in their own terminal once: it walks them through getting a key
-     and token, checks them, and saves them. Then carry on here.
+     and token, checks them, and saves them to this project's gitignored
+     `.sdlc/.env`. Never ask for the key or token in the conversation. Then
+     carry on here.
    - Tell the user in a sentence or two which docs are written and which are
      still templates.
 3. Ask the user, in one message (skip what the notes already answer):

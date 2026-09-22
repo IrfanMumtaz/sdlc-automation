@@ -21,8 +21,10 @@ Run `sdlc status`.
   (add `--create-lists` if the board doesn't have the stage lists yet), then
   run `/sdlc-kickoff`.
 - If Trello credentials are missing, stop and tell the user to run
-  `sdlc init --board <their board URL>` once in their own terminal: it asks
-  for a Trello key and token, checks them and saves them.
+  `sdlc init --board <their board URL>` once in their own terminal, in the
+  project's root folder: it asks for a Trello key and token, checks them and
+  saves them to the project's gitignored `.sdlc/.env`. Never ask for the key or
+  token in the conversation, and never read or write `.sdlc/.env` yourself.
 - Note `max_active_agents` and `max_dispatches_per_run` from the settings
   line, and which stages this project runs.
 

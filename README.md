@@ -25,19 +25,27 @@ python3 install.py                  # rerun after pulling changes; --uninstall t
   immediately
 - adds the pipeline's permission rules to `~/.claude/settings.json` (backup in
   `settings.json.sdlc-backup`)
-- sets up Trello credentials in `~/.config/sdlc/.env`
 
-It never overwrites an agent, skill or command it didn't create.
+It never overwrites an agent, skill or command it didn't create. It installs
+no Trello credentials: those belong to each project (below).
 
 Also needed:
-- **Trello credentials.** `sdlc init` asks for them the first time and checks
-  them against Trello before saving to `~/.config/sdlc/.env` (see
-  `.env.example` for the format). It tells you where to get them: the API key
-  and token from your Power-Up's API key page at
+- **Trello credentials, per project.** `sdlc init` asks for them the first
+  time in each project, checks them against Trello, and saves them to that
+  project's `.sdlc/.env`, which is gitignored. It tells you where to get them:
+  the API key and token from your Power-Up's API key page at
   https://trello.com/power-ups/admin, using the **Token** link (the token
   starts with `ATTA`), not the Secret. Run `sdlc init` in a terminal so it can
-  prompt; `--reauth` replaces them later, and `--project-credentials` keeps
-  them in the project's `.sdlc/.env` instead.
+  prompt; `--reauth` replaces them later. To write the file yourself:
+
+  ```
+  TRELLO_KEY=your_trello_api_key
+  TRELLO_TOKEN=your_trello_token_starting_with_ATTA
+  ```
+
+  `TRELLO_KEY` and `TRELLO_TOKEN` set in the environment win over the file
+  (useful in CI). Nothing outside the project is read; earlier versions used
+  `~/.config/sdlc/.env`, and `install.py` points it out if it's still there.
 - **Chrome or Chromium**, for mockups and the design style guide.
 - **The impeccable plugin**, for `/sdlc-kickoff design`.
 
@@ -63,13 +71,18 @@ This creates:
 ```
 <project>/
   .sdlc/config.json         provider, board, list IDs and settings — commit this
-  .sdlc/.gitignore          keeps the three below out of git
+  .sdlc/.env                this project's Trello key and token — never commit
+  .sdlc/.gitignore          keeps .env and the three below out of git
   .sdlc/state/              router bookkeeping (disposable)
   .sdlc/design-workspace/   /sdlc-kickoff's scratch folder for impeccable
   .sdlc/kickoff/            /sdlc-kickoff drafts and notes, saved every round
-  .sdlc/.env                optional per-project Trello credentials
   knowledge-base/           the project's knowledge base — commit this
 ```
+
+`init` writes `.sdlc/.gitignore` before it saves the credentials, adds any
+entries an older one is missing, and keeps lines you added. `sdlc status`
+warns if git would still commit `.sdlc/.env` — for instance because it was
+committed before it was ignored.
 
 ### Project settings (`.sdlc/config.json`)
 
@@ -359,7 +372,7 @@ To run one stage by hand: `@"sdlc-ba (agent)" ticket_id: <card id>`, then
 | File | Purpose |
 |---|---|
 | `sdlc.py` | The `sdlc` command: `init`, `status`, `next` (`--only`, `--ticket`)/`finish`/`recover`, `skip`, `render`, `draft`, `mcp kb`/`mcp trello` |
-| `install.py` | Installs the command, agents, skills, permissions and credentials for your user |
+| `install.py` | Installs the command, agents, skills and permissions for your user (credentials are per project) |
 | `config.py` | Engine constants (stage sequence, `AGENT_SUBAGENTS`, comment prefixes, project setting defaults) and project discovery/loading |
 | `orchestrator.py` | Router: comment processing, dispatch choice (priority label, then list position), single-ticket runs, wait/recover, bounce-cap / mismatch / agent-stuck escalation |
 | `state_store.py` | Per-project idle/busy, bounce-count and per-ticket skip tracking, with a lock |

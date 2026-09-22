@@ -36,7 +36,7 @@ def find_chrome():
     for c in candidates:
         if c and shutil.which(c):
             return shutil.which(c)
-    raise RuntimeError("No Chrome or Chromium found. Install one, or set CHROME_PATH in .env.")
+    raise RuntimeError("No Chrome or Chromium found. Install one, or set chrome_path in .sdlc/config.json.")
 
 
 def make_static(html):
