@@ -1,6 +1,6 @@
 ---
 name: sdlc-code-workflow
-description: How SDLC pipeline stages touch the product's code: finding it, running every command through the project's Docker setup, the per-ticket branch, commits and pushes, and what is never touched. Preloaded into sdlc-senior-developer, sdlc-code-analyst, sdlc-automated-qa, sdlc-po-tester and sdlc-deploy; not for direct use.
+description: How SDLC pipeline stages touch the product's code: finding it, running every command through the project's Docker setup, the per-ticket branch, commits and pushes, and what is never touched. Preloaded into sdlc-senior-developer, sdlc-automated-qa, sdlc-po-tester and sdlc-deploy; not for direct use.
 user-invocable: false
 ---
 

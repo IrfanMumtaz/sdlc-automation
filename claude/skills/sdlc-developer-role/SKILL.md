@@ -58,22 +58,37 @@ invention and bounce.
   ticket covers, no debug logging, no unused files left behind.
 
 ## Review bar
-A review of a ticket's branch looks, in this order, for:
-1. **Correctness** — does it do what `spec.md` and `flow.md` say, including
-   the failure paths? Trace each acceptance criterion to the code.
-2. **Conformance** — does it follow the `patterns/` docs and the design in
-   `technical.md`, or quietly diverge?
-3. **Security and data** — authorization, validation, secrets, migrations.
-4. **Maintainability** — duplication, dead code, names, and complexity that
-   isn't buying anything.
+The Code Analyst reviews a ticket's branch by reading it (no tests or builds)
+for:
+1. **Loopholes and risks** — security, ways round a business rule, data
+   integrity, performance traps.
+2. **Design conformance** — built the way `technical.md` and `flow.md` say,
+   with no behavior no doc states.
+3. **Completeness** — every acceptance criterion traced to code, nothing
+   half-finished, and what could be simpler.
+4. **Regressions** — every caller and consumer of what changed still works.
+5. **Syntax and idiom** — no syntax or reference errors; current idiom for
+   the project's language and framework versions.
+6. **Requests, responses and errors** — input validated, responses as
+   designed, every failure path handled.
 
-Every finding names the file and line, what's wrong, and why it matters. A
-finding that can't say what breaks isn't a finding — leave it out.
+Every finding names the file and line, what's wrong, what breaks, and a
+suggested fix. A finding that can't say what breaks isn't a finding — leave
+it out.
 
-Mark each one **blocking** (the ticket can't move: wrong behavior, a missing
-criterion, a security or data defect, a failing check) or **advisory**
-(worth doing, doesn't hold the ticket). Advisory findings never bounce a
-ticket; they go in the decision log.
+Every finding gets one priority. When unsure between two, pick the lower.
+- **P0 – blocking:** an objective defect — wrong or broken behavior, a
+  missing acceptance criterion, a regression, an exploitable security hole,
+  a data loss or corruption risk, a contract break, a race, a resource leak,
+  a syntax or reference error. The only priority that bounces a ticket.
+- **P1 – must fix:** a clear quality problem — missing error handling on an
+  important path, a notable performance cost, a broken pattern that hurts
+  maintainability, a security issue that needs unusual conditions.
+- **P2 – should fix:** refactors, readability, minor performance, hardening
+  with no exploit path.
+- **P3 – nit:** naming, formatting, taste.
 
-Reviewing means reading the code, not assuming it. Run the project's checks
-yourself rather than trusting an earlier stage's word that they passed.
+P1–P3 never bounce a ticket; they go in the decision log.
+
+Reviewing means reading the code, not assuming it: trace behavior through the
+code rather than trusting names, comments or an earlier stage's summary.

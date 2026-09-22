@@ -224,7 +224,7 @@ stays with you.
 | Solution Architect | `sdlc-solution-architect` | spec, `ux.md` and mockups, architecture and pattern docs, **the project's code (read-only)** | `technical.md`, `flow.md` | Knowledge Base Writer / PO or UI/UX |
 | Knowledge Base Writer | `sdlc-kb-writer` | the feature's docs and `decisions.md`, every project doc | `product/`, `architecture/`, `patterns/`, `registry.json` — the proposals earlier stages left, recorded or refused | Senior Developer / Solution Architect or UI/UX |
 | Senior Developer | `sdlc-senior-developer` | spec, `ux.md` and mockups, `technical.md`, `flow.md`, patterns, **the code** | **the product's code and its tests**, on `feature/<slug>`, committed and pushed | Code Analyst / Solution Architect, PO or UI/UX |
-| Code Analyst | `sdlc-code-analyst` | the branch's diff, spec, design, patterns; re-runs the checks | findings in `decisions.md`, marked blocking or advisory (never edits code) | Test Scenario Writer / Senior Developer |
+| Code Analyst | `sdlc-code-analyst` | the branch's diff in every repository, the code it reaches, spec, design, business rules, patterns (reads only; runs no tests) | findings in `decisions.md`, prioritized P0–P3; only P0 bounces (never edits code) | Test Scenario Writer / Senior Developer |
 | Test Scenario Writer | `sdlc-test-scenario-writer` | spec, `flow.md`, `ux.md`, business rules, the code | `test-scenarios.md` — behaviour only, no automation code | Automated QA / PO or UI/UX |
 | Automated QA | `sdlc-automated-qa` | `test-scenarios.md`, `patterns/testing`, the branch | **test code in the repo**, the suite run in Docker, per-scenario evidence | PO Tester / Senior Developer or Test Scenario Writer |
 | PO Tester | `sdlc-po-tester` | spec, `ux.md` and mockups, QA evidence, **the running app** | a verdict and evidence per acceptance criterion | Deploy / Senior Developer or PO |
@@ -286,7 +286,7 @@ Each agent file sets its own:
 | `sdlc-solution-architect` | opus | Reads your code and designs against it |
 | `sdlc-kb-writer` | sonnet | Judges which proposals belong in the shared docs and which need a person |
 | `sdlc-senior-developer` | opus | Writes the product's code against the design |
-| `sdlc-code-analyst` | opus | Catches what the tests don't, before the code sets a precedent |
+| `sdlc-code-analyst` | opus | Finds loopholes, regressions and design drift the tests don't, before the code sets a precedent |
 | `sdlc-test-scenario-writer` | sonnet | Turns acceptance criteria into checkable scenarios |
 | `sdlc-automated-qa` | opus | Automates the scenarios and decides what a failure means |
 | `sdlc-po-tester` | opus | Judges the built feature against what was actually asked for |
