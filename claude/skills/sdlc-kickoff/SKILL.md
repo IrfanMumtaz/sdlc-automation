@@ -175,10 +175,13 @@ result is recorded in the knowledge base in step 6.
 ## 5. Technical patterns
 1. Continue `sdlc-kickoff-architect` (or start it with the written architecture
    docs) to draft the technical `patterns/*`: API conventions, error handling,
-   auth, DB schema, and any others the product needs. Not `ui-patterns` or
-   `design-system`.
+   auth, DB schema, testing, and any others the product needs. Not
+   `ui-patterns` or `design-system`.
 2. It should only fill a pattern the user has decided or the code
-   consistently follows; others stay templates. Relay, approve, record, then
+   consistently follows; others stay templates. `testing` is the exception:
+   it's always drafted, with how to run every test level (its `TBD` levels
+   become decisions for the user), because the build and QA stages can't run
+   without it. Relay, approve, record, then
    clear those drafts.
 
 ## 6. Record approved docs

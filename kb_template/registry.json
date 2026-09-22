@@ -82,6 +82,14 @@
       ],
       "status": "template"
     },
+    "testing": {
+      "file": "patterns/testing.md",
+      "tags": [
+        "testing",
+        "qa"
+      ],
+      "status": "template"
+    },
     "ui-patterns": {
       "file": "patterns/ui-patterns.md",
       "tags": [

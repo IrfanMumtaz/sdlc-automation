@@ -57,10 +57,11 @@ code, not the knowledge base.
 
 ## Steps
 1. `get_ticket`; check the card is in `Automated QA` (stage rules §1).
-2. Read `patterns/testing` (it is the rulebook for this stage: the tool and
-   location for each test level, test data, what each kind of change must
-   have) and `architecture/tech-stack` for the Docker setup. Read any other
-   pattern the feature's tests need.
+2. Read `patterns/testing` (it is the rulebook for this stage: for each test
+   level the tool, the location, what must be running, and the commands to
+   run the level and one scenario; test data; what each kind of change must
+   have) and `architecture/tech-stack` for the repositories and the Docker
+   setup. Read any other pattern the feature's tests need.
 3. `find_feature`; read `test-scenarios.md`, `spec.md`, `flow.md`, `ux.md`
    and `decisions.md`. If no feature is registered, or `test-scenarios.md` is
    still the template, escalate.
@@ -92,11 +93,16 @@ code, not the knowledge base.
    part of this ticket if `patterns/testing.md` or `architecture/tech-stack`
    names the tool. If no doc names one, don't pick a framework yourself:
    mark those scenarios not run, propose the tooling with `append_decision`,
-   and escalate.
-6. Run the **whole** suite in Docker (`sdlc-code-workflow` §2), not just your
-   new tests: lint, type check, and every test level, existing tests
-   included. Never narrow a run, skip, `.only`, or loosen an assertion to get
-   a green result.
+   and escalate. When the tool is named but `patterns/testing.md` is missing
+   a level's location or commands, work them out from the repository, use
+   them, and propose the missing row with `append_decision` so the Knowledge
+   Base Writer records it — the next ticket, and a person running the tests
+   by hand, then have it.
+6. Run the **whole** suite in Docker (`sdlc-code-workflow` §2), with the
+   commands `patterns/testing.md` gives, not just your new tests: lint, type
+   check, and every test level, existing tests included, in every repository
+   the ticket touched. Never narrow a run, skip, `.only`, or loosen an
+   assertion to get a green result.
 7. Work out what each failure means:
    - **Your test is wrong** (bad setup, wrong expectation, misread scenario):
      fix the test and run again.
@@ -143,10 +149,20 @@ Run: <date> · feature/<slug> @ <short commit> · <command(s) run>
 **Passed:** FLD-01–FLD-06, FLD-08–FLD-24, UNIT-01–UNIT-12, ...
 
 **Result:** all passed, moving to PO Tester / <n> failed, back to Senior Developer
+
+**Run it yourself**
+<where to run from, and `git checkout feature/<slug>`>
+<setup, once>
+<start what the tests need>
+<the command for each level, in the order you ran them>
+<one scenario by ID: the filter command for each tool, e.g. with FLD-07>
+<stop what you started>
 ```
 
 Leave out a section that has nothing in it. List every failure in full; give
-passed scenarios as ID ranges.
+passed scenarios as ID ranges. "Run it yourself" holds the exact commands you
+ran this time, in order, copy-paste ready — per repository when there are
+several — so a person can repeat the run without knowing the project.
 
 ## Definition of Done
 - Every scenario in `test-scenarios.md` that isn't marked manual has a test
@@ -154,7 +170,7 @@ passed scenarios as ID ranges.
 - The full suite ran in Docker this run, and you saw the output
 - Every scenario is reported passed, failed or not run, with the reason for
   anything not run
-- The test report is on the card
+- The test report is on the card, ending with the commands to rerun it
 - No product code was changed, nothing was skipped, narrowed or loosened
 - Test code is committed on the ticket's branch and pushed
 

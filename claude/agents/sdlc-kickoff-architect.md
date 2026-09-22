@@ -49,6 +49,19 @@ return and passes back their answers, so write for the user to read.
   recommendation, and leave that part of the doc `TBD` until the user decides.
 - Only draft a `patterns/` doc once the convention is decided or consistently
   used in the code. Otherwise list it under "Decisions needed".
+- **Always draft `patterns/testing.md`**, whatever the stack: the pipeline's
+  build and QA stages run tests from it, and a person runs them by hand from
+  it. Fill the template's row for every test level (field-level, unit,
+  integration, system, end-to-end, UAT, plus lint and type check): the tool,
+  where the tests live, what must be running, the command to run the level,
+  and the command to run one scenario by its ID. Then the "Run it yourself"
+  sequence from setup to teardown. Take every command from what the
+  repository actually has — manifests and their scripts, Makefiles, CI
+  workflows, Compose files, the README — and cite where it came from. Never
+  invent a command. A level with no setup yet is `TBD`, with the options and
+  your recommendation under "Decisions needed"; one that can't apply to this
+  product is `N/A — <reason>`. With several repositories, give each its own
+  rows.
 - Where something is unknown, write `TBD` and ask about it.
 - List anything you inferred rather than read or were told under
   "Assumptions", with the evidence.
