@@ -15,7 +15,7 @@ waits until the next agent exists.
 
 ```bash
 pip install -r requirements.txt     # requests, mcp
-python3 install.py                  # rerun after pulling changes; --uninstall to remove
+python3 install.py                  # safe to rerun; --uninstall to remove
 ```
 
 `install.py`:
@@ -25,9 +25,25 @@ python3 install.py                  # rerun after pulling changes; --uninstall t
   immediately
 - adds the pipeline's permission rules to `~/.claude/settings.json` (backup in
   `settings.json.sdlc-backup`)
+- turns on auto-update (below); `--no-auto-update` leaves it off
 
 It never overwrites an agent, skill or command it didn't create. It installs
 no Trello credentials: those belong to each project (below).
+
+### Keeping machines up to date
+Push engine changes from any machine; every other machine picks them up by
+itself. `install.py` adds a `SessionStart` hook to `~/.claude/settings.json`
+that runs `install.py --update --quiet` whenever Claude Code starts. It
+fetches this repo's upstream branch, fast-forwards to it, relinks new or
+removed agents and skills, and adds any new pipeline permission rules. The
+session shows one line when something changed and says nothing otherwise
+(also when offline). Changes apply from the next session at the latest.
+
+It never merges or overwrites work: with uncommitted changes, or local commits
+that aren't pushed, it leaves the engine alone and says why. It doesn't add
+the coding stages' broad shell rules or run `pip`; if `requirements.txt`
+changed it tells you to. Run `python3 install.py --update` to update by hand,
+and `python3 install.py --no-auto-update` to turn the hook off.
 
 Also needed:
 - **Trello credentials, per project.** `sdlc init` asks for them the first
@@ -372,7 +388,7 @@ To run one stage by hand: `@"sdlc-ba (agent)" ticket_id: <card id>`, then
 | File | Purpose |
 |---|---|
 | `sdlc.py` | The `sdlc` command: `init`, `status`, `next` (`--only`, `--ticket`)/`finish`/`recover`, `skip`, `render`, `draft`, `mcp kb`/`mcp trello` |
-| `install.py` | Installs the command, agents, skills and permissions for your user (credentials are per project) |
+| `install.py` | Installs the command, agents, skills, permissions and the auto-update hook for your user (credentials are per project); `--update` pulls the latest engine and reinstalls |
 | `config.py` | Engine constants (stage sequence, `AGENT_SUBAGENTS`, comment prefixes, project setting defaults) and project discovery/loading |
 | `orchestrator.py` | Router: comment processing, dispatch choice (priority label, then list position), single-ticket runs, wait/recover, bounce-cap / mismatch / agent-stuck escalation |
 | `state_store.py` | Per-project idle/busy, bounce-count and per-ticket skip tracking, with a lock |
