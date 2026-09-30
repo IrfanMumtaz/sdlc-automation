@@ -17,6 +17,13 @@ carrying one out is written by the router itself:
   [UNSKIP] ticket=#123 stages="UI/UX"
   [SKIPPED] agent="UI/UX" ticket=#123 moved_to="Solution Architect" reason="..."
 
+The router also records each ticket's git branch the first time it prepares one:
+
+  [BRANCH] ticket=#123 name="feature/42-user-login" repos="knowledge-base,orders-service"
+
+repos lists every repository the branch has been pushed to so far; a new
+[BRANCH] comment is added whenever that list grows.
+
 Deliberately simple key="value" parsing — no need for a real grammar here, and a
 strict parser means malformed comments fail loudly instead of silently misrouting.
 """
@@ -63,6 +70,9 @@ def parse_comment(text):
     if text.startswith("[SKIPPED]"):
         # the router's own record of a skip it carried out; nothing left to do
         return {"type": "SKIPPED", **_parse_kv(text)}
+
+    if text.startswith("[BRANCH]"):
+        return {"type": "BRANCH", **_parse_kv(text)}
 
     if text.startswith("[ESCALATION"):
         # subtype is inside the brackets, e.g. "[ESCALATION: bounce-cap]"

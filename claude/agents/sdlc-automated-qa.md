@@ -15,7 +15,7 @@ mcpServers:
   - sdlc-kb-qa:
       type: stdio
       command: sdlc
-      args: ["mcp", "kb", "--role", "Automated QA", "--append-decisions"]
+      args: ["mcp", "kb", "--role", "Automated QA", "--append-decisions", "--ticket-worktree"]
 maxTurns: 300
 omitClaudeMd: true
 color: green
@@ -65,7 +65,8 @@ code, not the knowledge base.
 3. `find_feature`; read `test-scenarios.md`, `spec.md`, `flow.md`, `ux.md`
    and `decisions.md`. If no feature is registered, or `test-scenarios.md` is
    still the template, escalate.
-4. Check out `feature/<slug>` (`sdlc-code-workflow` §3) and read the tests
+4. Check you're on the ticket's branch in its worktree (`sdlc-code-workflow`
+   §1, §3), and read the tests
    the Senior Developer already wrote. Map each scenario ID to an existing
    test that asserts its "then". A test that exercises the path without
    asserting the outcome does not cover it.
@@ -125,7 +126,7 @@ Post it with `post_test_report` every run, before the event comment. It's
 what a person reads on the card, so keep it to this shape:
 
 ```
-Run: <date> · feature/<slug> @ <short commit> · <command(s) run>
+Run: <date> · <branch> @ <short commit> · <command(s) run>
 
 | Level | Scenarios | Passed | Failed | Not run | Manual |
 |---|---|---|---|---|---|
@@ -151,7 +152,7 @@ Run: <date> · feature/<slug> @ <short commit> · <command(s) run>
 **Result:** all passed, moving to PO Tester / <n> failed, back to Senior Developer
 
 **Run it yourself**
-<where to run from, and `git checkout feature/<slug>`>
+<`git fetch && git checkout <branch>` in a checkout of the repository, and where to run from>
 <setup, once>
 <start what the tests need>
 <the command for each level, in the order you ran them>

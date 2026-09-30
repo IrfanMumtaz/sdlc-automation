@@ -4,7 +4,8 @@ bootstrapping a project's knowledge base from kb_template/, and listing which
 project docs are written.
 
 The knowledge base is ordinary files inside the project. Agents write them;
-people review the changes and commit them with the rest of the project.
+in the pipeline the router commits each stage's changes on the ticket's
+branch (worktrees.py), and after kickoff people commit them.
 """
 
 import json

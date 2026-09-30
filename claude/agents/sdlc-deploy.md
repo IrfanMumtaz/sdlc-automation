@@ -14,7 +14,7 @@ mcpServers:
   - sdlc-kb-deploy:
       type: stdio
       command: sdlc
-      args: ["mcp", "kb", "--role", "Deploy", "--allow", "deployment.md", "--append-decisions"]
+      args: ["mcp", "kb", "--role", "Deploy", "--allow", "deployment.md", "--append-decisions", "--ticket-worktree"]
 maxTurns: 60
 omitClaudeMd: true
 color: red
@@ -57,9 +57,14 @@ and the project's checks through Docker. Never to release.
 3. `find_feature`; read `spec.md`, `technical.md`, `flow.md` and
    `decisions.md`. If no feature is registered, escalate.
 4. Verify the branch is actually ready:
-   - `feature/<slug>` exists, and its commits are pushed
-     (`git log origin/feature/<slug>..feature/<slug>` is empty). If they
-     aren't pushed, push them (`sdlc-code-workflow` §5).
+   - In every repository in `repos` whose branch has commits beyond its
+     base, you're on the ticket's branch (`sdlc-code-workflow` §1, §3), and
+     its commits are pushed (`git log origin/<branch>..<branch>` is empty).
+     If they aren't pushed, push them (`sdlc-code-workflow` §5). List each of
+     those repositories with its branch head in `deployment.md`, and when
+     more than one service changes, the order they must be released in (a
+     provider before the consumer that calls its new endpoint) and each
+     one's rollback.
    - Run the project's checks once more in Docker
      (`sdlc-code-workflow` §2). A red check means this ticket isn't ready to
      be offered for release.

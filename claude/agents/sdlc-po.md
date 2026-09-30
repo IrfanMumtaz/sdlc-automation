@@ -14,7 +14,7 @@ mcpServers:
   - sdlc-kb-po:
       type: stdio
       command: sdlc
-      args: ["mcp", "kb", "--role", "PO", "--allow", "definition.md,spec.md", "--append-decisions"]
+      args: ["mcp", "kb", "--role", "PO", "--allow", "definition.md,spec.md", "--append-decisions", "--ticket-worktree"]
 maxTurns: 20
 omitClaudeMd: true
 color: blue

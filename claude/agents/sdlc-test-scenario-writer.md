@@ -14,7 +14,7 @@ mcpServers:
   - sdlc-kb-test-writer:
       type: stdio
       command: sdlc
-      args: ["mcp", "kb", "--role", "Test Scenario Writer", "--allow", "test-scenarios.md", "--append-decisions"]
+      args: ["mcp", "kb", "--role", "Test Scenario Writer", "--allow", "test-scenarios.md", "--append-decisions", "--ticket-worktree"]
 maxTurns: 60
 omitClaudeMd: true
 color: green
@@ -65,7 +65,8 @@ No shell, no web access, and no file writes except through the tools above.
    fail, and `decisions.md`. If no feature is registered, escalate. If this
    ticket came back to you, keep the existing IDs: fix and add scenarios,
    never renumber.
-4. Read the code that was built for this ticket, to know what exists: the
+4. Read the code that was built for this ticket, in the repositories under
+   `repos` in your prompt (stage rules §6), to know what exists: the
    validation rules, the real error codes and messages, the boundaries, the
    units and endpoints by name. Scenarios describe what the spec requires,
    not what the code happens to do — but they name things as the system

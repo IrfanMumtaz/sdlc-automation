@@ -47,9 +47,10 @@ real file. A doc is `written` only once it holds real content. Tags on
 patterns are 1–4 short topic words agents can match on.
 
 ## Review, not commits
-The knowledge base is ordinary files inside the project. Agents never commit;
-a person reviews the diff and commits it with the rest of the project. Make
-that review easy: report exactly which files changed, every structural edit
+The knowledge base is ordinary files inside the project. Agents never commit
+it: in kickoff a person reviews the diff and commits it; in the pipeline the
+router commits each stage's changes on the ticket's branch, and a person
+reviews them when merging that branch. Make that review easy: report exactly which files changed, every structural edit
 you made, and a one-line suggested commit message such as
 `kickoff: product overview, personas, capabilities`.
 

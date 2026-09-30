@@ -15,7 +15,7 @@ mcpServers:
   - sdlc-kb-dev:
       type: stdio
       command: sdlc
-      args: ["mcp", "kb", "--role", "Senior Developer", "--append-decisions"]
+      args: ["mcp", "kb", "--role", "Senior Developer", "--append-decisions", "--ticket-worktree"]
 maxTurns: 200
 omitClaudeMd: true
 color: cyan
@@ -64,7 +64,9 @@ file under it directly, even though you can see it.
 4. Read the code before changing it: how the modules this feature touches
    work today, and how the nearest existing feature does the same kind of
    thing. Match it.
-5. Get on the ticket's branch (`sdlc-code-workflow` §3).
+5. Check you're on the ticket's branch, with a clean tree, in each
+   repository you'll change (`sdlc-code-workflow` §1, §3). Every file and
+   command from here on is under the ticket's workspace (`worktree`).
 6. Build it, to the `sdlc-developer-role` quality bar. Write the tests
    `patterns/testing.md` requires for this kind of change as you go — they're
    part of the work, not a later stage's job.
@@ -87,7 +89,7 @@ file under it directly, even though you can see it.
 - Tests required by `patterns/testing.md` are written and passing
 - Lint, type check and those tests all pass, run in the project's Docker
   setup this run, with output you saw
-- Work is committed on `feature/<slug>` and pushed, with no secrets or
+- Work is committed on the ticket's branch and pushed, with no secrets or
   generated files in the commit
 - Nothing left half-done: no `TODO` for this ticket's own work, no
   commented-out code, no disabled tests

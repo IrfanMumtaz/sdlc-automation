@@ -225,6 +225,7 @@ def update(quiet):
     systemMessage so it shows in the session.
     """
     def report(lines):
+        lines = lines + project_agent_changes()
         if not lines:
             return 0
         if quiet:
@@ -273,6 +274,21 @@ def update(quiet):
         lines.append(f"Python requirements changed: pip install -r {ENGINE / 'requirements.txt'}")
     lines.append("Changes apply from the next Claude Code session at the latest.")
     return report(lines)
+
+
+def project_agent_changes():
+    """
+    In an SDLC project, rewrite its copies of agents pinned to a model version
+    (`sdlc agents`), so they follow the engine just pulled. Runs the engine's
+    current sdlc.py in a new process for that reason. What changed, as lines.
+    """
+    try:
+        result = subprocess.run([sys.executable, str(ENGINE / "sdlc.py"), "agents", "--quiet"],
+                                capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    changes = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return [f"Model-pinned agents: {'; '.join(changes)}."] if changes else []
 
 
 def report_legacy_credentials():

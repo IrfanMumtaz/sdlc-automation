@@ -14,7 +14,7 @@ mcpServers:
   - sdlc-kb-writer:
       type: stdio
       command: sdlc
-      args: ["mcp", "kb", "--role", "Knowledge Base Writer", "--project-write", "--append-decisions"]
+      args: ["mcp", "kb", "--role", "Knowledge Base Writer", "--project-write", "--append-decisions", "--ticket-worktree"]
 maxTurns: 40
 omitClaudeMd: true
 color: orange

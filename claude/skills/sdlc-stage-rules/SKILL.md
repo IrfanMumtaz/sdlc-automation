@@ -70,7 +70,20 @@ comment, and never post an event you didn't carry out.
 - proposals for project docs (a missing glossary term, a new convention, an
   architecture change) for the Knowledge Base Writer stage
 
-## 6. Working unattended
+## 6. Your ticket's branch
+Other stages are working other tickets at the same time, so every ticket has
+its own git branch, and its own workspace holding a worktree of each
+repository on that branch. Your prompt names them (`worktree`,
+`project_dir`, `branch`, `repos`). The router prepared them before your
+run, with everything earlier stages pushed for this ticket.
+- Your knowledge base tools already read and write that ticket's copy of the
+  knowledge base. When you finish, the router commits your changes there and
+  pushes the branch; you never commit knowledge base changes yourself.
+- If you read code with `Read`, `Glob` or `Grep`, read it under `worktree`
+  (each repository's path is in `repos`), never from your working directory: that's the person's own
+  checkout, on whatever branch they left it.
+
+## 7. Working unattended
 No one can answer questions during your run. Decide with the judgment in your
 role skill, or escalate with a reason specific enough that a person can fix
 it in one pass. Don't stall.

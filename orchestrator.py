@@ -13,11 +13,16 @@ model itself.
 
 Up to the project's max_active_agents runs can be in progress at once. Every
 command holds the project's state lock, so commands never overlap.
+
+Each ticket works on its own branch in its own git worktree (worktrees.py):
+`next` prepares it before dispatching, and `finish` commits the stage's
+knowledge base changes on it and pushes it.
 """
 
 import logging
 
 import config
+import worktrees
 from trello_client import (
     get_cards_on_board, get_card, get_card_comments, add_comment, move_card, get_open_lists,
 )
@@ -27,6 +32,7 @@ from state_store import (
     is_agent_idle, mark_agent_busy, mark_agent_idle,
     any_agent_busy_with, increment_bounce,
     ticket_skips, add_ticket_skips, remove_ticket_skips,
+    session_alive,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -173,6 +179,14 @@ def handle_event(state, seen, card, event):
 
     elif etype == "SKIPPED":
         pass  # the router's own record; the card was already moved
+
+    elif etype == "BRANCH":
+        if event.get("name"):
+            state.setdefault("branches", {})[card_id] = event["name"]
+        pushed = [r for r in event.get("repos", "").split(",") if r]
+        if pushed:
+            known = state.setdefault("pushed_repos", {}).setdefault(card_id, [])
+            known += [r for r in pushed if r not in known]
 
     elif etype == "MISMATCH":
         log.warning(
@@ -348,12 +362,46 @@ def pick_ticket(state, cards, ticket_id):
     return where, card
 
 
+def prepare_worktree(state, seen, card, stage):
+    """
+    The ticket's worktree for a dispatch, or None after escalating the card
+    because its branch needs a person. A ProjectGitProblem propagates: nothing
+    can run until the repository is fixed.
+    """
+    try:
+        info, new_branch = worktrees.prepare(state, card, stage)
+    except worktrees.TicketGitProblem as exc:
+        log.warning(f"Branch problem on ticket {card['name']} ({card['id']}): {exc}. Escalating.")
+        reason = str(exc).replace('"', "'")
+        escalate(seen, card, "branch", f'ticket=#{card["id"]} reason="{reason}"')
+        return None
+    if new_branch:
+        state.setdefault("branches", {})[card["id"]] = info["branch"]
+        record_branch(seen, card["id"], info["branch"], [])
+    return info
+
+
+def record_branch(seen, ticket_id, branch, pushed_repos):
+    """The card's record of its branch and the repositories it's pushed to, for every machine."""
+    comment = add_comment(ticket_id, f'[BRANCH] ticket=#{ticket_id} name="{branch}" '
+                                     f'repos="{",".join(pushed_repos)}"')
+    seen.setdefault(ticket_id, []).append(comment["id"])  # the caller already applied it
+
+
 def busy_runs(state):
-    return [{"agent": name, "ticket_id": info["ticket_id"]}
-            for name, info in state["agents"].items() if info["status"] == "busy"]
+    runs = []
+    for name, info in state["agents"].items():
+        if info["status"] == "busy":
+            run = {"agent": name, "ticket_id": info["ticket_id"]}
+            if info.get("session_id"):
+                run["session_id"] = info["session_id"]
+            if info.get("session_pid") is not None:
+                run["session_pid"] = info["session_pid"]
+            runs.append(run)
+    return runs
 
 
-def cmd_next(only=None, ticket_id=None):
+def cmd_next(only=None, ticket_id=None, session_id=None, session_pid=None):
     with locked():
         state = load_state()
         seen = load_seen_comments()
@@ -367,18 +415,34 @@ def cmd_next(only=None, ticket_id=None):
         skipped = apply_skips(state, seen, [c for c in cards if not ticket_id or c["id"] == ticket_id])
 
         stages = runnable_stages(only)
-        if ticket_id:
-            chosen = pick_ticket(state, cards, ticket_id)
-            if isinstance(chosen, dict):  # can't run: the dict says why
+        escalated = []
+        while True:
+            if ticket_id:
+                chosen = pick_ticket(state, cards, ticket_id)
+                if isinstance(chosen, dict):  # can't run: the dict says why
+                    save_state(state)
+                    save_seen_comments(seen)
+                    return {**chosen, "ticket_only": ticket_id, **({"skipped": skipped} if skipped else {}),
+                            **({"escalated": escalated} if escalated else {})}
+            else:
+                chosen = pick_next(state, cards, only)
+            if not chosen:
+                break
+            try:
+                tree = prepare_worktree(state, seen, chosen[1], chosen[0])
+            except worktrees.ProjectGitProblem:
                 save_state(state)
                 save_seen_comments(seen)
-                return {**chosen, "ticket_only": ticket_id, **({"skipped": skipped} if skipped else {})}
-        else:
-            chosen = pick_next(state, cards, only)
+                raise
+            if tree:
+                break
+            # Escalated to Human (the card has moved), so pick again.
+            escalated.append({"ticket_id": chosen[1]["id"], "ticket_name": chosen[1]["name"],
+                              "reason": "its branch needs a person; see the card's escalation comment"})
 
         if chosen:
             agent_name, card = chosen
-            mark_agent_busy(state, agent_name, card["id"])
+            mark_agent_busy(state, agent_name, card["id"], session_id, session_pid)
             state["last_stage"] = agent_name  # so the next dispatch moves along the requested order
             log.info(f"DISPATCH: {agent_name} -> ticket '{card['name']}' ({card['id']})")
             result = {
@@ -388,10 +452,12 @@ def cmd_next(only=None, ticket_id=None):
                 "ticket_id": card["id"],
                 "ticket_name": card["name"],
                 "priority": priority_of(card) or "none",
+                **tree,
             }
             model = config.model_for(agent_name)
-            if model:
-                result["model"] = model
+            if model and config.is_model_family(model):
+                result["model"] = model.strip().lower()
+            # a version is on the project's copy of the agent file (agent_versions.py)
             if ticket_id:
                 result["ticket_only"] = ticket_id
         elif busy_runs(state):
@@ -411,6 +477,8 @@ def cmd_next(only=None, ticket_id=None):
 
         if skipped:
             result["skipped"] = skipped
+        if escalated:
+            result["escalated"] = escalated
         if config.project_skips():
             result["skipped_stages"] = config.project_skips()
 
@@ -419,26 +487,66 @@ def cmd_next(only=None, ticket_id=None):
         return result
 
 
+def record_work(state, seen, agent_name, ticket_id, outcome):
+    """
+    Commit and push what the stage left on its ticket's branch, and note on the
+    card any repository the branch reached for the first time, so another
+    machine knows to expect it on origin. Never fails the finish.
+    """
+    try:
+        name = get_card(ticket_id)["name"]
+    except Exception:  # noqa: BLE001 - the commit message can do without the title
+        name = f"ticket {ticket_id}"
+    try:
+        result = worktrees.record_stage(state, agent_name, ticket_id, name, outcome)
+        known = state.setdefault("pushed_repos", {}).setdefault(ticket_id, [])
+        new = [r for r in result.pop("pushed_repos", []) if r not in known]
+        if new:
+            known += new
+            record_branch(seen, ticket_id, result["branch"], known)
+        return result
+    except Exception as exc:  # noqa: BLE001 - report it; the run itself is already settled
+        log.warning(f"Couldn't record {agent_name}'s work on ticket {ticket_id}: {exc}")
+        return {"error": str(exc)}
+
+
 def cmd_finish(agent_name, ticket_id):
     with locked():
         state = load_state()
         seen = load_seen_comments()
         result = {"agent": agent_name, "ticket_id": ticket_id, **settle(state, seen, agent_name, ticket_id)}
+        result["git"] = record_work(state, seen, agent_name, ticket_id, result["result"])
         save_state(state)
         save_seen_comments(seen)
         return result
 
 
-def cmd_recover():
+def cmd_recover(session_id=None, session_pid=None):
     """
-    Settle every run still marked busy. Only safe when no agent from this
-    project is running, i.e. at the start of a /sdlc session: a busy agent then
-    belongs to an earlier session that was interrupted before `finish`.
+    Settle runs still marked busy whose owning session is no longer alive.
+    Skips runs from the caller's own session (they're between dispatch and
+    finish) and runs from other sessions whose process is still running.
+    Without a session_id, falls back to the old behaviour: recover everything.
     """
     with locked():
         state = load_state()
         seen = load_seen_comments()
-        recovered = [{**run, **settle(state, seen, run["agent"], run["ticket_id"])} for run in busy_runs(state)]
+        recovered, skipped = [], []
+        for run in busy_runs(state):
+            if session_id:
+                if run.get("session_id") == session_id:
+                    skipped.append(run)
+                    continue
+                if run.get("session_pid") is not None and session_alive(run["session_pid"]):
+                    skipped.append(run)
+                    continue
+            settled = {**run, **settle(state, seen, run["agent"], run["ticket_id"])}
+            settled["git"] = record_work(state, seen, run["agent"], run["ticket_id"], settled["result"])
+            recovered.append(settled)
         save_state(state)
         save_seen_comments(seen)
-        return {"recovered": recovered}
+        result = {"recovered": recovered}
+        if skipped:
+            result["active_in_other_sessions"] = [
+                {"agent": r["agent"], "ticket_id": r["ticket_id"]} for r in skipped]
+        return result

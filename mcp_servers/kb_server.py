@@ -17,10 +17,16 @@ adds the only tools that can write product/, architecture/, patterns/ and
 their registry entries; only the Knowledge Base Writer starts the server with
 it. Every role can read project and feature docs.
 
-The project (and its knowledge base) is found from the directory Claude Code
-runs in; see config.py. A knowledge base that doesn't exist yet is
-bootstrapped from kb_template/ when the server starts. Agents never commit:
-people review knowledge base changes and commit them with the project.
+The project is found from the directory Claude Code runs in; see config.py.
+Kickoff agents work on the project checkout's knowledge base, which is
+bootstrapped from kb_template/ when the server starts if it doesn't exist yet,
+and a person commits it.
+
+Pipeline stages pass --ticket-worktree: every call then goes to the knowledge
+base inside the worktree of the ticket the router dispatched to this stage
+(worktrees.py), bound on the first call and kept for the server's life. The
+router commits those changes on the ticket's branch and pushes it when the
+stage finishes; agents never commit.
 """
 
 import argparse
@@ -38,13 +44,35 @@ from mcp.server.fastmcp import FastMCP, Image
 import config
 import knowledge_base
 import mockup_render
+import worktrees
 from knowledge_base import PROJECT_SECTIONS
 
 config.require_project()
 
-KB_ROOT = config.KB_REPO_PATH
-TEMPLATE_DIR = KB_ROOT / "features" / "_template"
-REGISTRY_PATH = KB_ROOT / "registry.json"
+# Set in main(): the stage whose dispatched ticket's worktree this server works
+# in, or None to work on the project checkout (kickoff agents).
+TICKET_STAGE = None
+_bound_root = None
+
+
+def kb_root():
+    """The knowledge base this server reads and writes."""
+    global _bound_root
+    if TICKET_STAGE is None:
+        return config.KB_REPO_PATH
+    if _bound_root is None:
+        ticket_id = worktrees.dispatched_ticket(TICKET_STAGE)
+        root = worktrees.ticket_kb_root(ticket_id) if ticket_id else None
+        if root is None or not (root / "registry.json").is_file():
+            raise ValueError(f"no ticket worktree is prepared for the {TICKET_STAGE} stage. Stage agents only run "
+                             f"when /sdlc dispatches them; say so in your report and stop.")
+        _bound_root = root
+    return _bound_root
+
+
+def _rel(path):
+    return path.relative_to(kb_root())
+
 
 ALL_FEATURE_DOCS = {
     "definition.md", "spec.md", "technical.md", "ux.md",
@@ -53,7 +81,6 @@ ALL_FEATURE_DOCS = {
 
 # Design system files beyond patterns/design-system.md, copied from the /sdlc-kickoff
 # design workspace by the Knowledge Base Writer: workspace path -> KB file name.
-DESIGN_ASSETS_DIR = KB_ROOT / "patterns" / "design-system"
 DESIGN_WORKSPACE = config.DESIGN_WORKSPACE_PATH
 DESIGN_ASSET_SOURCES = {
     ".impeccable/design.json": "design.json",
@@ -67,6 +94,10 @@ MOCKUP_FILE_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\.(html|png)")
 SLUG_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 
+def _design_assets_dir():
+    return kb_root() / "patterns" / "design-system"
+
+
 def _check_slug(slug, what="slug"):
     """
     Reject anything but plain kebab-case, so a name like '../../patterns' can't
@@ -78,7 +109,7 @@ def _check_slug(slug, what="slug"):
 
 def _feature_dir(slug):
     _check_slug(slug)
-    return KB_ROOT / "features" / slug
+    return kb_root() / "features" / slug
 
 
 def _mockup_path(slug, file_name):
@@ -86,7 +117,7 @@ def _mockup_path(slug, file_name):
         raise ValueError(f"invalid mockup file '{file_name}'. Expected e.g. 'export-dialog-desktop.png'.")
     path = _feature_dir(slug) / "mockups" / file_name
     if not path.exists():
-        raise ValueError(f"{path.relative_to(KB_ROOT)} does not exist")
+        raise ValueError(f"{_rel(path)} does not exist")
     return path
 
 
@@ -99,15 +130,15 @@ def _project_doc_path(section, name):
     if section not in PROJECT_SECTIONS:
         raise ValueError(f"unknown section '{section}'. Valid sections: {list(PROJECT_SECTIONS)}")
     _check_slug(name, "doc name")
-    return KB_ROOT / section / f"{name}.md"
+    return kb_root() / section / f"{name}.md"
 
 
 def _load_registry():
-    return json.loads(REGISTRY_PATH.read_text())
+    return json.loads((kb_root() / "registry.json").read_text())
 
 
 def _save_registry(registry):
-    REGISTRY_PATH.write_text(json.dumps(registry, indent=2) + "\n")
+    (kb_root() / "registry.json").write_text(json.dumps(registry, indent=2) + "\n")
 
 
 def build_server(role_name: str, allowed_write_docs: set[str], project_write: bool,
@@ -130,7 +161,7 @@ def build_server(role_name: str, allowed_write_docs: set[str], project_write: bo
     def list_project_docs() -> str:
         """List the project-level docs (product/, architecture/, patterns/) with
         whether each is written or still an unfilled template, and its tags."""
-        return knowledge_base.project_doc_status(KB_ROOT)
+        return knowledge_base.project_doc_status(kb_root())
 
     @mcp.tool()
     def read_project_doc(section: str, name: str) -> str:
@@ -138,7 +169,7 @@ def build_server(role_name: str, allowed_write_docs: set[str], project_write: bo
         for product/overview.md."""
         path = _project_doc_path(section, name)
         if not path.exists():
-            raise ValueError(f"{path.relative_to(KB_ROOT)} does not exist")
+            raise ValueError(f"{_rel(path)} does not exist")
         return path.read_text()
 
     @mcp.tool()
@@ -148,7 +179,7 @@ def build_server(role_name: str, allowed_write_docs: set[str], project_write: bo
             raise ValueError(f"unknown doc '{doc_name}'. Valid docs: {sorted(ALL_FEATURE_DOCS)}")
         path = _feature_dir(slug) / doc_name
         if not path.exists():
-            raise ValueError(f"{path.relative_to(KB_ROOT)} does not exist")
+            raise ValueError(f"{_rel(path)} does not exist")
         return path.read_text()
 
     @mcp.tool()
@@ -172,9 +203,9 @@ def build_server(role_name: str, allowed_write_docs: set[str], project_write: bo
         or the screenshots 'style-guide-desktop.png' / 'style-guide-mobile.png'."""
         if file_name not in DESIGN_ASSET_SOURCES.values():
             raise ValueError(f"unknown design asset '{file_name}'. Valid: {sorted(DESIGN_ASSET_SOURCES.values())}")
-        path = DESIGN_ASSETS_DIR / file_name
+        path = _design_assets_dir() / file_name
         if not path.exists():
-            raise ValueError(f"{path.relative_to(KB_ROOT)} does not exist; the design system hasn't been recorded")
+            raise ValueError(f"{_rel(path)} does not exist; the design system hasn't been recorded")
         return _file_content(path)
 
     # PO creates feature folders; every other stage finds them with find_feature.
@@ -210,11 +241,11 @@ def _add_feature_create_tool(mcp):
             raise ValueError(f"slug '{proposed_slug}' already exists but isn't linked to ticket "
                              f"{ticket_id}. Choose a different slug.")
 
-        shutil.copytree(TEMPLATE_DIR, feature_dir)
+        shutil.copytree((kb_root() / "features" / "_template"), feature_dir)
         registry["features"][proposed_slug] = {
             "ticket_id": ticket_id,
             "status": "backlog",
-            "docs": sorted(str(p.relative_to(KB_ROOT)) for p in feature_dir.glob("*.md")),
+            "docs": sorted(str(_rel(p)) for p in feature_dir.glob("*.md")),
             "patterns_used": [],
             "tags": [t.strip() for t in tags.split(",") if t.strip()],
         }
@@ -237,7 +268,7 @@ def _add_feature_write_tool(mcp, role_name, allowed_write_docs):
             raise ValueError(f"feature folder for slug '{slug}' doesn't exist. Call get_or_create_feature first.")
         path = feature_dir / doc_name
         path.write_text(content)
-        return f"Wrote {path.relative_to(KB_ROOT)}"
+        return f"Wrote {_rel(path)}"
 
 
 def _add_decision_tool(mcp, role_name):
@@ -249,11 +280,11 @@ def _add_decision_tool(mcp, role_name):
     def append_decision(slug: str, entry: str) -> str:
         path = _feature_dir(slug) / "decisions.md"
         if not path.exists():
-            raise ValueError(f"{path.relative_to(KB_ROOT)} does not exist")
+            raise ValueError(f"{_rel(path)} does not exist")
         line = " ".join(entry.split())  # one line per entry
         with path.open("a") as f:
             f.write(f"- {datetime.date.today().isoformat()} | {role_name} | {line}\n")
-        return f"Appended to {path.relative_to(KB_ROOT)}"
+        return f"Appended to {_rel(path)}"
 
 
 def _add_mockup_tool(mcp):
@@ -274,7 +305,7 @@ def _add_mockup_tool(mcp):
         html_path.parent.mkdir(exist_ok=True)
         html_path.write_text(mockup_render.make_static(html))
         pngs = mockup_render.render_viewports(html_path, {"desktop": desktop_height, "mobile": mobile_height})
-        listing = ", ".join(str(p.relative_to(KB_ROOT)) for p in [html_path, *pngs])
+        listing = ", ".join(str(_rel(p)) for p in [html_path, *pngs])
         return [f"Saved {listing}", *(Image(path=str(p)) for p in pngs)]
 
 
@@ -293,7 +324,7 @@ def _add_project_write_tools(mcp):
 
         registry = _load_registry()
         entry = registry.setdefault(section, {}).setdefault(name, {})
-        entry["file"] = str(path.relative_to(KB_ROOT))
+        entry["file"] = str(_rel(path))
         new_tags = [t.strip() for t in tags.split(",") if t.strip()]
         if new_tags:
             entry["tags"] = new_tags
@@ -308,12 +339,12 @@ def _add_project_write_tools(mcp):
         design workspace into patterns/design-system/: the token sidecar
         (.impeccable/design.json) and the style guide HTML and screenshots.
         Record patterns/design-system.md itself with write_project_doc."""
-        DESIGN_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+        _design_assets_dir().mkdir(parents=True, exist_ok=True)
         copied, missing = [], []
         for source, dest in DESIGN_ASSET_SOURCES.items():
             src = DESIGN_WORKSPACE / source
             if src.is_file():
-                shutil.copyfile(src, DESIGN_ASSETS_DIR / dest)
+                shutil.copyfile(src, _design_assets_dir() / dest)
                 copied.append(dest)
             else:
                 missing.append(source)
@@ -322,7 +353,7 @@ def _add_project_write_tools(mcp):
         registry = _load_registry()
         entry = registry.setdefault("patterns", {}).setdefault(
             "design-system", {"file": "patterns/design-system.md", "status": "template"})
-        entry["assets"] = sorted(str((DESIGN_ASSETS_DIR / d).relative_to(KB_ROOT)) for d in copied)
+        entry["assets"] = sorted(str(_rel(_design_assets_dir() / d)) for d in copied)
         _save_registry(registry)
         return f"Copied {copied} to patterns/design-system/" + (f"; not found in workspace: {missing}" if missing else "")
 
@@ -337,11 +368,20 @@ def main():
                         help="allow appending to features' decisions.md (pipeline stage agents)")
     parser.add_argument("--mockups", action="store_true",
                         help="allow saving and rendering feature mockups (UI/UX stage)")
+    parser.add_argument("--ticket-worktree", action="store_true",
+                        help="work in the worktree of the ticket dispatched to the --role stage (pipeline stages)")
     args = parser.parse_args()
+
+    global TICKET_STAGE
+    if args.ticket_worktree:
+        if args.role not in config.AGENT_SEQUENCE:
+            parser.error(f"--ticket-worktree needs --role to be a stage: {config.AGENT_SEQUENCE}")
+        TICKET_STAGE = args.role
 
     allowed = {d.strip() for d in args.allow.split(",") if d.strip()}
     server = build_server(args.role, allowed, args.project_write, args.append_decisions, args.mockups)
-    knowledge_base.bootstrap(KB_ROOT)
+    if TICKET_STAGE is None:
+        knowledge_base.bootstrap(config.KB_REPO_PATH)
     server.run()
 
 

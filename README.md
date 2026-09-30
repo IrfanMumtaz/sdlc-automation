@@ -88,10 +88,11 @@ This creates:
 <project>/
   .sdlc/config.json         provider, board, list IDs and settings — commit this
   .sdlc/.env                this project's Trello key and token — never commit
-  .sdlc/.gitignore          keeps .env and the three below out of git
+  .sdlc/.gitignore          keeps .env and the four below out of git
   .sdlc/state/              router bookkeeping (disposable)
   .sdlc/design-workspace/   /sdlc-kickoff's scratch folder for impeccable
   .sdlc/kickoff/            /sdlc-kickoff drafts and notes, saved every round
+  .sdlc/worktrees/          one git worktree per ticket, created by /sdlc
   knowledge-base/           the project's knowledge base — commit this
 ```
 
@@ -108,7 +109,7 @@ committed before it was ignored.
 | `bounce_cap` | 3 | Bounces on one ticket before it escalates to Human |
 | `max_dispatches_per_run` | 10 | Agent runs per `/sdlc` (override per run: `/sdlc 3`) |
 | `stages` | `null` | Limit this project to certain stages, e.g. `["PO", "BA"]`, in dispatch order. `null` means every built stage, in pipeline order |
-| `models` | `{}` | Model per stage for this project, e.g. `{"PO": "sonnet", "UIUX": "haiku"}`. Empty means each agent's own model (table below) |
+| `models` | `{}` | Model per stage for this project: a family, e.g. `{"PO": "sonnet", "UIUX": "haiku"}`, or a version, e.g. `{"Solution Architect": "claude-opus-4-5"}`. Empty means each agent's own model (see [Models and cost](#models-and-cost)) |
 | `knowledge_base` | `knowledge-base` | Knowledge base folder, relative to the project |
 | `design_workspace` | `.sdlc/design-workspace` | Where `/sdlc-kickoff` runs impeccable |
 | `chrome_path` | `null` | Chrome/Chromium binary for mockups; found on PATH when unset |
@@ -214,11 +215,101 @@ card carrying two priority labels counts as the highest of them.
 
 Run one `/sdlc` at a time per project.
 
-Agents never commit the **knowledge base** — review that diff and commit it
-with the project. The **code** is different: from Senior Developer on, each
-ticket's work is committed to its own `feature/<slug>` branch and pushed.
+### One branch per ticket
+
+Several agents work at once, each on a different ticket, so every ticket gets
+its **own branch in its own git worktree**. Agents never share a checkout, and
+your own checkout never changes branch.
+
+- The first time a ticket is dispatched (normally to PO), `sdlc next` fetches
+  and creates `feature/<card number>-<title>` (e.g. `feature/42-user-login`)
+  from the latest `origin/<development branch>`. It checks the branch out in
+  `.sdlc/worktrees/42-user-login/` and records the name on the card as a
+  `[BRANCH]` comment.
+- Every later dispatch of that ticket reuses the worktree, first
+  fast-forwarding it to what earlier stages pushed, from this machine or
+  another. If the local and pushed branches have diverged, the ticket
+  escalates to **Human**: the pipeline never merges, rebases or force-pushes.
+- The agent works only there. Knowledge base tools read and write that
+  ticket's copy of the knowledge base, and code stages get the worktree path,
+  the branch and a per-ticket Docker Compose project name in their prompt.
+- When the stage ends, `sdlc finish` commits its knowledge base changes on the
+  ticket's branch and pushes it. Code stages commit and push their own code.
+
+So PO writing the Dashboard docs, BA reviewing Signup, and Senior Developer
+building Login each work on their own branch, and each stage picks up
+exactly what the one before it pushed for that ticket.
+
+Before the first ticket runs, the knowledge base from `/sdlc-kickoff` must be
+committed on the development branch and pushed, since every ticket branch
+starts from it; `sdlc next` stops and says so if it isn't. Commit
+`.sdlc/.gitignore` too, once `worktrees/` is added to it.
+
 Nothing is merged into your development branch, and nothing is deployed; that
-stays with you.
+stays with you. Review and merge each ticket's branch when it's done, then
+remove its worktree:
+
+```
+sdlc worktree list                          # every ticket's worktree: clean? pushed?
+sdlc worktree remove --ticket <url|id>      # refuses if anything is uncommitted or unpushed; keeps the branch
+```
+
+A ticket started before per-ticket worktrees keeps its `feature/<slug>`
+branch. Switch your own checkout off that branch so it can get a worktree.
+
+### Microservices: one repository per service
+
+The project folder doesn't have to be a repository. Put `.sdlc/` in a parent
+folder that holds one repository per service, with the knowledge base in its
+own repository (or inside one of them):
+
+```
+parent/                      .sdlc/ here; not a git repository
+  knowledge-base/            repo
+  orders-service/            repo
+  payments-service/          repo
+  docker-compose.yml         shared, not in any repository
+```
+
+Every folder directly inside it that is its own repository is found
+automatically. Each ticket's workspace mirrors that layout, so relative paths
+between services still resolve, with the **same branch name in every
+repository**:
+
+```
+.sdlc/worktrees/42-checkout/
+  knowledge-base/            worktree on feature/42-checkout
+  orders-service/            worktree on feature/42-checkout
+  payments-service/          worktree on feature/42-checkout
+  docker-compose.yml         link to the shared file
+```
+
+- **PO, BA, UI/UX and Knowledge Base Writer** get only the knowledge base's
+  repository. **From Solution Architect on**, every repository is added.
+  Services the ticket doesn't change stay at their development branch, so
+  tests run against the real combination.
+- **`sdlc finish` pushes a repository's branch only once it has commits.** An
+  untouched service never gets an empty `feature/42-checkout` on its remote.
+  The card's `[BRANCH]` comments list the repositories pushed so far, so
+  another machine knows which branches must exist. A missing one escalates
+  instead of silently starting that service from scratch.
+- **Each repository has its own development branch**: the first of `develop`,
+  `development`, `main`, `master` it has, or set one per repository:
+
+  ```json
+  "repositories": {"payments-service": {"development_branch": "main"}}
+  ```
+
+  A path listed under `repositories` is also picked up when it sits deeper
+  than one folder down (`services/orders`).
+- Files outside every repository (the shared `docker-compose.yml`) are links:
+  every ticket sees the same file, and agents never change it.
+- The Solution Architect names the services a change touches. Code Analyst
+  reviews each changed repository and the contracts between them. Deploy
+  lists every repository's branch head, the release order and each service's
+  rollback.
+
+Merge a finished ticket's branch in each repository it was pushed to.
 
 ## How `/sdlc` works
 
@@ -275,11 +366,13 @@ findings back.
   `Write` and `Edit`; Code Analyst, PO Tester and Deploy have Bash but no way
   to change a file. No pipeline agent has web access, and none may edit the
   knowledge base directly — that only happens through their MCP tools.
-- **The build stages work on a branch.** Each ticket gets `feature/<slug>` off
-  the project's development branch (`development_branch` in
-  `.sdlc/config.json`, or the first of `develop`, `development`, `main`,
-  `master`). Commits are pushed; nothing is ever merged, tagged or deployed,
-  and builds and tests run in the project's own Docker setup. Deployment is
+- **Every stage works on the ticket's branch.** Each ticket gets its own
+  branch and worktree off the project's development branch
+  (`development_branch` in `.sdlc/config.json`, or the first of `develop`,
+  `development`, `main`, `master`); see [One branch per ticket](#one-branch-per-ticket).
+  Commits are pushed; nothing is ever merged, tagged or deployed, and builds
+  and tests run in the project's own Docker setup, one Compose project per
+  ticket. Deployment is
   human-gated: the Deploy stage prepares the request and hands the card to
   **Human**.
 - **Escalations are real.** A ticket bounced `bounce_cap` times moves to
@@ -313,6 +406,31 @@ Each agent file sets its own:
 Override per project with `models` in `.sdlc/config.json` (stage names are
 matched loosely, so `UIUX` works), or change an agent file to change it
 everywhere. `sdlc status` shows the overrides in force.
+
+A value is either a family (`opus`, `sonnet`, `haiku`, `fable`), which always
+means that family's current model, or a version to pin, such as
+`claude-opus-4-5`:
+
+```json
+"models": {"PO": "sonnet", "Solution Architect": "claude-opus-4-5", "Senior Developer": "claude-opus-5-5"}
+```
+
+Claude Code's Agent tool only accepts a family, so `/sdlc` can't pass a
+version when it starts a stage. Instead, for each stage pinned to a version,
+sdlc writes a copy of that agent's file into the project's
+`.claude/agents/`, with the version on its `model:` line. A project agent
+overrides the user-level one of the same name. The copies:
+
+- are rewritten by `sdlc status` (which `/sdlc` runs first), `sdlc agents`, and
+  the startup hook after an engine update, so they follow the engine. They're
+  removed when the stage goes back to a family.
+- are marked `# Generated by sdlc` and listed in `.claude/agents/.gitignore`,
+  since each machine generates its own. Don't edit them. An agent file of
+  your own with the same name is never overwritten: `sdlc status` says the
+  stage couldn't be pinned.
+- take effect from the next Claude Code session, because agent files are read
+  at startup. When a copy changes, `sdlc status` says `RESTART NEEDED` and
+  `/sdlc` stops until you restart.
 
 Other things that move the bill: `max_dispatches_per_run` caps agent runs per
 `/sdlc`; running fewer stages (`/sdlc PO,BA`) skips the rest; and mockup
@@ -393,6 +511,7 @@ To run one stage by hand: `@"sdlc-ba (agent)" ticket_id: <card id>`, then
 | `config.py` | Engine constants (stage sequence, `AGENT_SUBAGENTS`, comment prefixes, project setting defaults) and project discovery/loading |
 | `orchestrator.py` | Router: comment processing, dispatch choice (priority label, then list position), single-ticket runs, wait/recover, bounce-cap / mismatch / agent-stuck escalation |
 | `state_store.py` | Per-project idle/busy, bounce-count and per-ticket skip tracking, with a lock |
+| `worktrees.py` | One git worktree and branch per ticket: prepared before each dispatch, the stage's knowledge base changes committed and pushed after it |
 | `comment_parser.py` | Parses `[AGENT_DONE]` / `[BOUNCE]` / `[MISMATCH]` / `[ESCALATION: ...]` / `[SKIP]` / `[UNSKIP]` / `[SKIPPED]` |
 | `trello_client.py` | Thin REST wrapper; credentials go in a header so errors don't expose them |
 | `knowledge_base.py` | Bootstraps a project's knowledge base from `kb_template/`; lists project doc status |

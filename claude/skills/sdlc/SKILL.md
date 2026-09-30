@@ -2,7 +2,7 @@
 name: sdlc
 description: Run the SDLC agent pipeline for the current project's Trello board. Hands each ready ticket to its stage subagent (sdlc-po, sdlc-ba, ...), running up to the project's max_active_agents at once, until there's nothing left to do. Can be limited to named stages (/sdlc PO,BA) or to one ticket (/sdlc https://trello.com/c/abc123), which then runs through every stage. Use when the user types /sdlc or asks to run or advance the pipeline.
 argument-hint: "[ticket URL or id] [stages, e.g. PO,BA,UIUX] [max dispatches]"
-allowed-tools: Bash(sdlc status), Bash(sdlc next *), Bash(sdlc finish *), Bash(sdlc recover), Bash(sdlc skip *)
+allowed-tools: Bash(sdlc status), Bash(sdlc next *), Bash(sdlc finish *), Bash(sdlc recover *), Bash(sdlc skip *)
 ---
 
 # Run the SDLC pipeline
@@ -13,6 +13,14 @@ board, or do a stage's work yourself, and don't touch Trello or the knowledge
 base with any other tool (including a claude.ai Trello connector).
 
 Run every `sdlc` command one at a time, never two at once.
+
+## 0. Start a session
+Run `python3 -c "import uuid; print(uuid.uuid4().hex[:12])"` and
+`echo $PPID` (two separate commands). Save both values as `SESSION_ID` and
+`SESSION_PID`. Pass `--session <SESSION_ID> --session-pid <SESSION_PID>` to
+every `sdlc next`, `sdlc finish` and `sdlc recover` call in this run. This
+tags your dispatches so that another person's `/sdlc` session on the same
+project won't kill your running agents, and vice versa.
 
 ## 1. Check the project
 Run `sdlc status`.
@@ -25,6 +33,10 @@ Run `sdlc status`.
   project's root folder: it asks for a Trello key and token, checks them and
   saves them to the project's gitignored `.sdlc/.env`. Never ask for the key or
   token in the conversation, and never read or write `.sdlc/.env` yourself.
+- If it prints a `Model versions: ... RESTART NEEDED` line, it just wrote,
+  changed or removed the project's copy of a stage agent pinned to a model
+  version, and this session still has the old one. Show the line and stop:
+  the user restarts Claude Code and runs `/sdlc` again.
 - Note `max_active_agents` and `max_dispatches_per_run` from the settings
   line, and which stages this project runs.
 
@@ -77,23 +89,42 @@ Never skip a stage on your own judgment, and never to get past a stage that
 bounced or escalated a ticket — a person decides that.
 
 ## 2. Recover
-Run `sdlc recover` once. It closes out runs that an earlier, interrupted
-session started but never finished. Mention any it recovered in your report.
+Run `sdlc recover --session <SESSION_ID> --session-pid <SESSION_PID>` once.
+It closes out runs from sessions that are no longer alive (interrupted or
+exited), while leaving another person's active `/sdlc` session alone. Mention
+any it recovered in your report; if it reports `active_in_other_sessions`,
+tell the user those agents belong to another live session.
 
 ## 3. Dispatch loop
 Keep a list of the runs you've started and not yet finished. Repeat:
 
-1. Run `sdlc next` — with `--ticket "..."` when the user named a ticket, or
-   `--only "..."` when they named stages. Its stdout is one JSON object.
+1. Run `sdlc next --session <SESSION_ID> --session-pid <SESSION_PID>` — with
+   `--ticket "..."` when the user named a ticket, or `--only "..."` when they
+   named stages. Its stdout is one JSON object.
 2. **`dispatch`**: start the subagent named in `subagent` with exactly this
-   prompt (fill in `ticket_id`). If the output has a `model` field, start it
-   with that model; without one, the agent uses the model in its own file.
+   prompt, filled in from the output. If the output has a `model` field,
+   start it with that model; without one, don't pass a model: the agent uses
+   the one in its file (a stage pinned to a model version has it there).
 
    ```
    ticket_id: <ticket_id>
+   worktree: <worktree>
+   project_dir: <project_dir>
+   branch: <branch>
+   compose_project: <compose_project>
+   repos:
+   - <name>: <path> (base <base>)
+   <one line per entry in `repos`>
 
    Process this ticket per your role instructions.
    ```
+
+   Every ticket has its own branch and its own workspace (`worktree`), which
+   `sdlc next` has already created or brought up to date: one git worktree
+   per repository the stage needs, all on that branch. That's what lets
+   agents on different tickets run at once without sharing a checkout. Never
+   switch branches, create worktrees or run git yourself. Show any
+   `git_warnings` in the output to the user.
 
    If `max_active_agents` is 1, run it in the foreground and go straight to
    step 4 when it returns. Otherwise start it in the background, add it to
@@ -102,10 +133,12 @@ Keep a list of the runs you've started and not yet finished. Repeat:
 3. **`wait`**: agents are still running and nothing else can start. Wait for
    the next background subagent to finish, then do step 4 for it.
 4. **A subagent finished**, whatever its outcome (done, error, turn limit,
-   refusal): run `sdlc finish --agent "<agent>" --ticket <ticket_id>` for that
-   run and remove it from your list. It records what the agent did and
-   escalates the card to Human if the agent left no event comment. Don't
-   resume or retry the subagent yourself. Then go back to step 1.
+   refusal): run `sdlc finish --agent "<agent>" --ticket <ticket_id> --session <SESSION_ID> --session-pid <SESSION_PID>`
+   for that run and remove it from your list. It records what the agent did,
+   escalates the card to Human if the agent left no event comment, and
+   commits the stage's knowledge base changes on the ticket's branch and
+   pushes it (the `git` field). Don't resume or retry the subagent yourself.
+   Then go back to step 1.
 5. **`idle`**: nothing is running and nothing is ready. Stop. In a ticket run
    the output also carries `reason` and the ticket's current `list` — the
    ticket reached `Human`, sits in a list no stage owns, or isn't on the
@@ -119,12 +152,20 @@ session; keep waiting for it.
 
 If an `sdlc` command exits non-zero or doesn't print JSON, stop starting new
 agents, finish the ones already running if you can, and show the user the
-error output.
+error output. `sdlc next` exits this way when the repository can't give a
+ticket its branch (not a git repository, no development branch, or the
+knowledge base isn't committed on it); the message says what a person has to
+do.
 
 ## 4. Report
 - Each run: ticket name, agent, `result` from `finish` (`recorded` or
-  `escalated`), the list the card ended in, and a one-line summary of what the
-  subagent said it did.
+  `escalated`), the list the card ended in, the branch, and a one-line summary
+  of what the subagent said it did.
+- Git trouble from `finish`, per repository under `repos`: a `pushed` value
+  that says `failed`, a `commit_error`, or `uncommitted` files the stage left
+  in its worktree.
+- Tickets under `escalated` in a `next` output: their branch needs a person
+  (it diverged from the pushed one, or is checked out elsewhere).
 - Runs recovered in step 2.
 - **Stages skipped** (any `skipped` entries across the run): ticket, the stage
   skipped, and where it went. Say whether it was the project's setting or that
@@ -140,5 +181,7 @@ error output.
 - Anything under `no_agent_built` in the output: the user asked for those
   stages, but no agent exists for them yet, so nothing ran there.
 - If you stopped at the dispatch limit rather than at idle, say so.
-- Knowledge base changes are uncommitted files in the project; remind the
-  user to review and commit them.
+- Each ticket's work, docs and code, is committed on its own branch and
+  pushed, in every repository it changed. Nothing is merged: a person reviews
+  and merges the ticket's branch in each of those repositories. `sdlc worktree list` shows every ticket's worktree and
+  whether its work is pushed.

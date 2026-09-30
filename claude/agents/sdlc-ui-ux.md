@@ -14,7 +14,7 @@ mcpServers:
   - sdlc-kb-ui-ux:
       type: stdio
       command: sdlc
-      args: ["mcp", "kb", "--role", "UI/UX", "--allow", "ux.md", "--append-decisions", "--mockups"]
+      args: ["mcp", "kb", "--role", "UI/UX", "--allow", "ux.md", "--append-decisions", "--mockups", "--ticket-worktree"]
 maxTurns: 40
 omitClaudeMd: true
 color: pink

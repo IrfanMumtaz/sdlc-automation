@@ -8,9 +8,11 @@ user-invocable: false
 
 Every agent in the pipeline works from one shared knowledge base: what the
 product is, how it's built, the conventions it follows, and one folder per
-feature. It lives inside the project (its path is in `.sdlc/config.json`),
-and people review and commit its changes with the project; agents never
-commit. Later agents treat what's in it as fact, so these rules apply to
+feature. It lives inside the project (its path is in `.sdlc/config.json`)
+and travels with the code: in the pipeline, each ticket's knowledge base
+changes are committed on that ticket's branch by the router after each
+stage, and in kickoff a person reviews and commits them. Agents never
+commit it themselves. Later agents treat what's in it as fact, so these rules apply to
 every role.
 
 ## Layout

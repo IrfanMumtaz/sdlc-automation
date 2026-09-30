@@ -9,9 +9,10 @@ the same way git finds a repository; SDLC_PROJECT_DIR overrides that.
     <project>/
       .sdlc/config.json        Trello board and lists, concurrency and other settings (commit this)
       .sdlc/.env               this project's Trello key and token (gitignored, never commit)
-      .sdlc/.gitignore         keeps .env, state/, design-workspace/ and kickoff/ out of git
+      .sdlc/.gitignore         keeps .env, state/, design-workspace/, kickoff/ and worktrees/ out of git
       .sdlc/state/             router bookkeeping (disposable)
       .sdlc/design-workspace/  /sdlc-kickoff's impeccable scratch folder
+      .sdlc/worktrees/         one git worktree per ticket, on its own branch (see worktrees.py)
       knowledge-base/          the project's knowledge base (path configurable)
 
 Trello credentials belong to the project: TRELLO_KEY and TRELLO_TOKEN in
@@ -31,7 +32,7 @@ PROJECT_CONFIG_NAME = "config.json"
 PROJECT_CREDENTIALS_NAME = ".env"
 # What .sdlc/.gitignore must hold. The credentials file comes first: it's the
 # one entry whose absence would put secrets in the project's repository.
-PROJECT_GITIGNORE = [PROJECT_CREDENTIALS_NAME, "state/", "design-workspace/", "kickoff/"]
+PROJECT_GITIGNORE = [PROJECT_CREDENTIALS_NAME, "state/", "design-workspace/", "kickoff/", "worktrees/"]
 
 # --- Pipeline sequence, in order. This list IS the state machine. ---
 # Every project's board has one list per stage, with exactly these names,
@@ -93,12 +94,16 @@ PROJECT_DEFAULTS = {
     "stages": None,                  # limit the pipeline to these stages; null means every built stage
     "skip_stages": [],               # stages no ticket goes through: the router moves cards straight
                                      # past them. Different from `stages`, where cards simply wait.
-    "models": {},                    # stage -> model for this project, e.g. {"PO": "sonnet"};
+    "models": {},                    # stage -> model for this project: a family, e.g. {"PO": "sonnet"},
+                                     # or a version, e.g. {"PO": "claude-opus-4-5"} (see agent_versions.py);
                                      # empty means each agent file's own model
     "knowledge_base": "knowledge-base",
     "design_workspace": ".sdlc/design-workspace",
     "chrome_path": None,             # Chrome/Chromium for mockups; found on PATH when unset
-    "development_branch": None,      # base branch the coding stages branch from;
+    "repositories": {},              # per-repository settings keyed by path, e.g.
+                                     # {"orders-service": {"development_branch": "main"}}; a path
+                                     # listed here is used even when it's deeper than one folder down
+    "development_branch": None,      # base branch every ticket's branch starts from;
                                      # null means the first of develop, development, main, master
 }
 
@@ -151,6 +156,10 @@ def find_project_root(start=None):
         return root if (root / PROJECT_DIR_NAME / PROJECT_CONFIG_NAME).is_file() else None
     current = Path(start or os.getcwd()).resolve()
     for directory in (current, *current.parents):
+        # A ticket worktree under .sdlc/worktrees/ carries its own copy of
+        # .sdlc/config.json; the project is still the checkout around it.
+        if PROJECT_DIR_NAME in directory.parts:
+            continue
         if (directory / PROJECT_DIR_NAME / PROJECT_CONFIG_NAME).is_file():
             return directory
     return None
@@ -247,8 +256,18 @@ def next_stage_after(stage):
     return AGENT_SEQUENCE[index + 1] if index + 1 < len(AGENT_SEQUENCE) else HUMAN_LIST
 
 
+# What Claude Code's Agent tool accepts as a model. Any other `models` value (a
+# version like claude-opus-4-5, or "inherit") only an agent file's `model:`
+# line can carry, so agent_versions.py writes one into the project.
+MODEL_FAMILIES = ["opus", "sonnet", "haiku", "fable"]
+
+
+def is_model_family(model):
+    return model.strip().lower() in MODEL_FAMILIES
+
+
 def model_for(stage):
-    """The project's model override for a stage, or None to use the agent's own."""
+    """The project's model override for a stage (family or version), or None to use the agent's own."""
     wanted = "".join(ch for ch in stage.lower() if ch.isalnum())
     for name, model in MODELS.items():
         if "".join(ch for ch in name.lower() if ch.isalnum()) == wanted:

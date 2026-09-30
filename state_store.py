@@ -14,11 +14,20 @@ state.json shape:
   },
   "skips": {
      "abc123": ["UI/UX"]
+  },
+  "branches": {
+     "abc123": "feature/42-user-login"
+  },
+  "pushed_repos": {
+     "abc123": ["knowledge-base", "orders-service"]
   }
 }
 
 "skips" holds the stages each ticket is marked to skip, rebuilt from the
-board's [SKIP] / [UNSKIP] comments if this file is lost.
+board's [SKIP] / [UNSKIP] comments if this file is lost. "branches" holds each
+ticket's git branch (its workspace is .sdlc/worktrees/<branch without feature/>)
+and "pushed_repos" the repositories it's on origin in, both rebuilt from the
+router's [BRANCH] comments.
 
 seen_comments.json shape:
 {
@@ -62,6 +71,8 @@ def _default_state():
         "agents": {name: {"status": "idle", "ticket_id": None} for name in config.AGENT_SEQUENCE},
         "bounce_counts": {},
         "skips": {},
+        "branches": {},
+        "pushed_repos": {},
     }
 
 
@@ -73,9 +84,13 @@ def load_state():
 
 
 def save_state(state):
+    # Atomic, because the KB MCP servers read it without the lock to find
+    # their ticket's worktree.
     os.makedirs(config.STATE_DIR, exist_ok=True)
-    with open(config.STATE_FILE, "w") as f:
+    tmp = f"{config.STATE_FILE}.tmp"
+    with open(tmp, "w") as f:
         json.dump(state, f, indent=2)
+    os.replace(tmp, config.STATE_FILE)
 
 
 def load_seen_comments():
@@ -95,8 +110,13 @@ def is_agent_idle(state, agent_name):
     return state["agents"].get(agent_name, {}).get("status", "idle") == "idle"
 
 
-def mark_agent_busy(state, agent_name, ticket_id):
-    state["agents"][agent_name] = {"status": "busy", "ticket_id": ticket_id}
+def mark_agent_busy(state, agent_name, ticket_id, session_id=None, session_pid=None):
+    entry = {"status": "busy", "ticket_id": ticket_id}
+    if session_id:
+        entry["session_id"] = session_id
+    if session_pid is not None:
+        entry["session_pid"] = session_pid
+    state["agents"][agent_name] = entry
 
 
 def mark_agent_idle(state, agent_name):
@@ -109,6 +129,19 @@ def any_agent_busy_with(state, ticket_id):
         if info.get("status") == "busy" and info.get("ticket_id") == ticket_id:
             return True
     return False
+
+
+def session_alive(session_pid):
+    """Check whether the process that owns a session is still running."""
+    if session_pid is None:
+        return False
+    try:
+        os.kill(int(session_pid), 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        return True  # process exists but we can't signal it
 
 
 def increment_bounce(state, ticket_id):

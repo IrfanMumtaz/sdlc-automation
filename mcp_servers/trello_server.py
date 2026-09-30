@@ -20,9 +20,9 @@ from mcp.server.fastmcp import FastMCP
 
 import config
 import trello_client
+import worktrees
 
 config.require_project()
-KB_ROOT = config.KB_REPO_PATH
 SLUG_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 MOCKUP_PNG_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\.png")
 
@@ -80,7 +80,9 @@ def attach_mockup(ticket_id: str, slug: str, file_name: str) -> str:
     reruns don't pile up copies."""
     if not SLUG_PATTERN.fullmatch(slug) or not MOCKUP_PNG_PATTERN.fullmatch(file_name):
         raise ValueError("slug must be kebab-case and file_name a kebab-case .png, e.g. 'export-dialog-desktop.png'")
-    path = KB_ROOT / "features" / slug / "mockups" / file_name
+    # The mockup lives on the ticket's branch, in its worktree.
+    kb = worktrees.ticket_kb_root(ticket_id) or config.KB_REPO_PATH
+    path = kb / "features" / slug / "mockups" / file_name
     if not path.is_file():
         raise ValueError(f"features/{slug}/mockups/{file_name} does not exist; save the mockup first")
     for existing in trello_client.get_attachments(ticket_id):

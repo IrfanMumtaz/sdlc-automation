@@ -15,7 +15,7 @@ mcpServers:
   - sdlc-kb-po-tester:
       type: stdio
       command: sdlc
-      args: ["mcp", "kb", "--role", "PO Tester", "--append-decisions"]
+      args: ["mcp", "kb", "--role", "PO Tester", "--append-decisions", "--ticket-worktree"]
 maxTurns: 100
 omitClaudeMd: true
 color: blue
@@ -64,8 +64,8 @@ find goes back to the stage that owns it.
    `decisions.md`: which scenarios passed, which were marked manual, which
    couldn't run. Manual scenarios are yours to check, and the UAT scenarios
    in `test-scenarios.md` are your script for step 5.
-5. Check out `feature/<slug>` and bring the app up in Docker
-   (`sdlc-code-workflow` §2, §3). Exercise the feature the way its persona
+5. In the ticket's worktree (`sdlc-code-workflow` §1, §3), bring the app up
+   in Docker with its `compose_project` (`sdlc-code-workflow` §2). Exercise the feature the way its persona
    would: the main path, then the failure paths the spec calls for. Use
    whatever the stack gives you — HTTP calls, the project's CLI, a Playwright
    script run through the project's own test tooling for screens. Take

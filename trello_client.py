@@ -34,7 +34,7 @@ def get_cards_on_board():
     the priority labels; the router sorts on both.
     """
     return _request("GET", f"boards/{config.BOARD_ID}/cards",
-                    fields="id,name,idList,pos,labels,dateLastActivity")
+                    fields="id,idShort,name,idList,pos,labels,dateLastActivity")
 
 
 def get_card(card_id):
@@ -42,7 +42,7 @@ def get_card(card_id):
     Return one card's name, description, current list ID, position and labels.
     `card_id` may be the card's id or the short link from its URL.
     """
-    return _request("GET", f"cards/{card_id}", fields="id,name,desc,idList,pos,labels")
+    return _request("GET", f"cards/{card_id}", fields="id,idShort,name,desc,idList,pos,labels")
 
 
 def get_card_comments(card_id):

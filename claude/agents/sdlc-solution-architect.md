@@ -14,7 +14,7 @@ mcpServers:
   - sdlc-kb-architect:
       type: stdio
       command: sdlc
-      args: ["mcp", "kb", "--role", "Solution Architect", "--allow", "technical.md,flow.md", "--append-decisions"]
+      args: ["mcp", "kb", "--role", "Solution Architect", "--allow", "technical.md,flow.md", "--append-decisions", "--ticket-worktree"]
 maxTurns: 100
 omitClaudeMd: true
 color: purple
@@ -56,15 +56,18 @@ No shell, web access or file writes outside the two docs above.
 3. `find_feature`; read `definition.md`, `spec.md`, `ux.md` and `decisions.md`.
    If no feature is registered, escalate. Look at the mockups `ux.md` lists
    when the design depends on what's on screen.
-4. Read the code. It's where `architecture/tech-stack.md` says: usually this
-   project's own folder (your working directory), plus any other repositories
-   it lists. Read only code and docs, never secrets (`.env` files,
+4. Read the code, in this ticket's workspace: every repository is listed
+   under `repos` in your prompt (stage rules §6), and
+   `architecture/tech-stack.md` says which service lives where. Read only code and docs, never secrets (`.env` files,
    `.sdlc/.env`, keys, credentials). Find the modules this feature
    touches, similar existing features, and how the relevant conventions are
    actually applied. If there's no code yet, design from the knowledge base
    alone and say so in `technical.md` under Approach.
 5. Write `technical.md`, then `flow.md`, to the `sdlc-solution-architect-role`
    quality bar. Cite code paths wherever the design depends on existing code.
+   When the project has several repositories, name every service (repository)
+   the change touches, and for a change across services, the contract between
+   them and which one must be released first.
 6. Record in `decisions.md`: design choices later stages need to know, and
    proposals for project docs (a new convention, an architecture change) for
    the Knowledge Base Writer stage.

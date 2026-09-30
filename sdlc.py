@@ -4,11 +4,14 @@ sdlc — the SDLC pipeline's command line. Run it from anywhere inside a project
 
   sdlc init --board <trello board URL or id>   set up the project in the current folder
   sdlc status                                  project settings and knowledge base status
+  sdlc agents                                  write the project's copies of agents pinned to a model version
   sdlc next [--only PO,BA] [--ticket <url|id>] | finish | recover
                                                router commands used by /sdlc
   sdlc skip --ticket <url|id> --stages "UI/UX" skip stages for one ticket
   sdlc skip --project --stages "UI/UX"         skip stages for every ticket
   sdlc skip --show                             what's skipped right now
+  sdlc worktree list | remove --ticket <url|id>
+                                               each ticket's git worktree and branch
   sdlc render <page.html>                      render a static page to desktop/mobile PNGs
   sdlc draft save|show|list|clear|note          /sdlc-kickoff's work in progress, so a session can be resumed
   sdlc mcp kb|trello [options]                 start an agent's MCP server (used by agent files)
@@ -172,6 +175,8 @@ def cmd_init(args):
     if credentials.is_file() and not git_ignores(credentials):
         print(f"WARNING: git would commit {credentials}, which holds your Trello token. It's probably "
               f"already tracked: `git rm --cached .sdlc/.env`, then revoke and replace the token.")
+    if config.PROJECT_ROOT == root:  # a new project pins nothing yet
+        print_agent_version_changes(agent_versions_sync())
     print("Commit .sdlc/config.json and the knowledge base with the project; .sdlc/.env stays out of git. "
           "Next: /sdlc-kickoff in Claude Code.")
 
@@ -204,14 +209,54 @@ def cmd_status(_args):
           + "  (`sdlc skip --show` includes single tickets)")
     print("Model overrides: " + (", ".join(f"{k}={v}" for k, v in config.MODELS.items()) if config.MODELS
                                  else "none (each agent uses the model in its own file)"))
+    print_agent_version_changes(agent_versions_sync())
     print(f"Design workspace: {config.DESIGN_WORKSPACE_PATH}")
     print(f"Knowledge base: {config.KB_REPO_PATH}" + (" (just created from template)" if created_kb else ""))
     print(knowledge_base.project_doc_status(config.KB_REPO_PATH))
 
 
+def agent_versions_sync():
+    """Rewrite the project's copies of version-pinned agents: (changes, warnings) as lines."""
+    import agent_versions
+
+    try:
+        return agent_versions.sync()
+    except (OSError, ValueError) as exc:
+        return [], [f"couldn't write the version-pinned agent files: {exc}"]
+
+
+def print_agent_version_changes(result):
+    changes, warnings = result
+    for warning in warnings:
+        print(f"WARNING: {warning}")
+    if changes:
+        print("Model versions: " + "; ".join(changes) + ". RESTART NEEDED: Claude Code reads agent files "
+              "when a session starts, so these apply from the next session.")
+
+
+def cmd_agents(args):
+    """Sync the version-pinned agent copies (the startup hook runs this with --quiet)."""
+    if not config.PROJECT_ROOT:
+        if not args.quiet:
+            print("No SDLC project here, so no agent files to write.")
+        return
+    changes, warnings = agent_versions_sync()
+    for line in changes + [f"WARNING: {w}" for w in warnings]:
+        print(line)
+    if not (changes or warnings or args.quiet):
+        import agent_versions
+        pinned = agent_versions.pinned()
+        print("Up to date. " + ("Pinned: " + ", ".join(f"{stage}={model}" for stage, model in pinned.values())
+                                if pinned else "No stage is pinned to a model version."))
+
+
 def cmd_router(args):
     config.require_project()
     import orchestrator
+    import worktrees
+
+    session_id = getattr(args, "session", None) or None
+    session_pid = getattr(args, "session_pid", None)
 
     if args.command == "next":
         try:
@@ -219,11 +264,14 @@ def cmd_router(args):
         except ValueError as exc:
             sys.exit(str(exc))
         ticket_id = ticket_id_from(args.ticket) if args.ticket else None
-        emit(orchestrator.cmd_next(args.only, ticket_id))
+        try:
+            emit(orchestrator.cmd_next(args.only, ticket_id, session_id, session_pid))
+        except worktrees.ProjectGitProblem as exc:
+            sys.exit(f"Can't prepare a ticket branch: {exc}")
     elif args.command == "finish":
         emit(orchestrator.cmd_finish(args.agent, args.ticket))
     else:
-        emit(orchestrator.cmd_recover())
+        emit(orchestrator.cmd_recover(session_id, session_pid))
 
 
 def cmd_skip(args):
@@ -300,6 +348,34 @@ def cmd_skip(args):
     card_name = trello_client.get_card(ticket_id)["name"]
     print(f"{card_name} ({ticket_id}) now skips: " + (", ".join(remaining) or "nothing"))
     print("Recorded on the card. It takes effect at the next `sdlc next`.")
+
+
+def cmd_worktree(args):
+    """Each ticket's worktree: list them, or remove one whose work is all pushed."""
+    config.require_project()
+    import worktrees
+    from state_store import locked, load_state
+
+    with locked():
+        state = load_state()
+        if args.worktree_command == "remove":
+            try:
+                print(worktrees.remove(state, ticket_id_from(args.ticket)))
+            except (worktrees.TicketGitProblem, worktrees.ProjectGitProblem) as exc:
+                sys.exit(f"Not removed: {exc}")
+            return
+        rows = worktrees.listing(state)
+    if not rows:
+        print("No ticket worktrees yet; `sdlc next` creates one the first time it dispatches a ticket.")
+        return
+    for row in rows:
+        print(f"{row['branch']}  ticket {row['ticket_id']}  {row['worktree']}")
+        if not row["exists"] or not row["repos"]:
+            print("    no workspace (recreated at the next dispatch)")
+        for name, repo in row["repos"].items():
+            pushed = ("all pushed" if repo["unpushed"] == 0 else
+                      "no remote" if repo["unpushed"] == "no remote" else f"unpushed: {repo['unpushed']}")
+            print(f"    {name}: {'uncommitted changes' if repo['dirty'] else 'clean'}, {pushed}")
 
 
 DRAFT_SECTIONS = ("product", "architecture", "patterns")
@@ -402,13 +478,21 @@ def main():
     init.add_argument("--force", action="store_true", help="allow a project inside another project")
 
     sub.add_parser("status", help="project settings and knowledge base status")
+    agents = sub.add_parser("agents", help="write the project's copies of agents pinned to a model version")
+    agents.add_argument("--quiet", action="store_true", help="print only what changed")
     nxt = sub.add_parser("next", help="process new comments and pick the next ticket")
     nxt.add_argument("--only", help="limit this run to these stages, e.g. 'PO,BA,UIUX' (default: all built stages)")
     nxt.add_argument("--ticket", help="work only this ticket (card URL, short link or id), whatever stage it's in")
+    nxt.add_argument("--session", help="session id for this /sdlc run")
+    nxt.add_argument("--session-pid", dest="session_pid", type=int, help="PID of the owning session")
     finish = sub.add_parser("finish", help="close out an agent run")
     finish.add_argument("--agent", required=True, choices=config.AGENT_SEQUENCE)
     finish.add_argument("--ticket", required=True)
-    sub.add_parser("recover", help="close out runs an interrupted session never finished")
+    finish.add_argument("--session", help="session id for this /sdlc run")
+    finish.add_argument("--session-pid", dest="session_pid", type=int, help="PID of the owning session")
+    recover = sub.add_parser("recover", help="close out runs an interrupted session never finished")
+    recover.add_argument("--session", help="session id for this /sdlc run (skips its own and live sessions)")
+    recover.add_argument("--session-pid", dest="session_pid", type=int, help="PID of the owning session")
 
     skip = sub.add_parser("skip", help="skip stages for one ticket or for every ticket")
     skip.add_argument("--ticket", help="skip for this ticket only (card URL, short link or id)")
@@ -417,6 +501,12 @@ def main():
     skip.add_argument("--reason", help="why, recorded on the card")
     skip.add_argument("--clear", action="store_true", help="stop skipping; without --stages, clears them all")
     skip.add_argument("--show", action="store_true", help="show what's skipped right now")
+
+    worktree = sub.add_parser("worktree", help="each ticket's git worktree and branch")
+    worktree_sub = worktree.add_subparsers(dest="worktree_command", required=True)
+    worktree_sub.add_parser("list", help="every ticket worktree, and whether its work is committed and pushed")
+    remove = worktree_sub.add_parser("remove", help="remove a ticket's worktree (the branch is kept)")
+    remove.add_argument("--ticket", required=True, help="card URL, short link or id")
 
     render = sub.add_parser("render", help="render a static HTML page to desktop and mobile PNGs")
     render.add_argument("html")
@@ -446,10 +536,14 @@ def main():
         cmd_init(args)
     elif args.command == "status":
         cmd_status(args)
+    elif args.command == "agents":
+        cmd_agents(args)
     elif args.command in ("next", "finish", "recover"):
         cmd_router(args)
     elif args.command == "skip":
         cmd_skip(args)
+    elif args.command == "worktree":
+        cmd_worktree(args)
     elif args.command == "render":
         cmd_render(args)
     elif args.command == "draft":
