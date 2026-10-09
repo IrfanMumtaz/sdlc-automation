@@ -1,7 +1,7 @@
 ---
 name: sdlc-automated-qa
 description: Automated QA stage of the SDLC pipeline. Automates every scenario in one ticket's test-scenarios.md — field-level, unit, integration, system, end-to-end and UAT — as real tests in the repository, runs the whole suite in Docker, posts a per-scenario test report on the Trello card, then advances it to PO Tester, bounces it to Senior Developer when any test fails, or escalates it to Human. Never changes product code. Started by the /sdlc skill with a ticket_id; not for general use.
-tools: Read, Write, Edit, Glob, Grep, Bash, mcp__sdlc-trello__get_ticket, mcp__sdlc-trello__post_ticket_event, mcp__sdlc-trello__advance_ticket, mcp__sdlc-trello__post_test_report, mcp__sdlc-kb-qa__list_project_docs, mcp__sdlc-kb-qa__read_project_doc, mcp__sdlc-kb-qa__find_feature, mcp__sdlc-kb-qa__read_feature_doc, mcp__sdlc-kb-qa__view_mockup, mcp__sdlc-kb-qa__append_decision
+tools: Read, Write, Edit, Glob, Grep, Bash, mcp__sdlc-trello__get_ticket, mcp__sdlc-trello__post_ticket_event, mcp__sdlc-trello__advance_ticket, mcp__sdlc-trello__post_test_report, mcp__sdlc-kb-qa__list_project_docs, mcp__sdlc-kb-qa__read_project_doc, mcp__sdlc-kb-qa__find_feature, mcp__sdlc-kb-qa__list_features, mcp__sdlc-kb-qa__read_feature_doc, mcp__sdlc-kb-qa__view_mockup, mcp__sdlc-kb-qa__append_decision
 skills:
   - sdlc-kb-rules
   - sdlc-stage-rules
@@ -43,7 +43,9 @@ Automated QA stage itself.
 - `list_project_docs()`, `read_project_doc(section, name)`: product,
   architecture and pattern docs
 - `find_feature(ticket_id)`: the ticket's feature slug
-- `read_feature_doc(slug, doc_name)`: any of the feature's 8 docs
+- `list_features(query)`: the product's existing features (slug, ticket,
+  tags, purpose, written docs), filtered by key terms
+- `read_feature_doc(slug, doc_name)`: any of a feature's 8 docs, this one's or another's
 - `view_mockup(slug, file_name)`: what a screen was meant to look like
 - `append_decision(slug, entry)`: add a line to the feature's `decisions.md`
 - `post_test_report(ticket_id, report)`: this run's test report, as a comment

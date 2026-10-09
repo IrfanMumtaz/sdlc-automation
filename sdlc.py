@@ -350,6 +350,115 @@ def cmd_skip(args):
     print("Recorded on the card. It takes effect at the next `sdlc next`.")
 
 
+def _print_review(entry, show_docs=False, ticket_id=None):
+    print(f"  stage {entry['stage']}, round {entry['round']}")
+    if show_docs:
+        import worktrees
+        kb = worktrees.ticket_kb_root(ticket_id)
+        registry = json.loads((kb / "registry.json").read_text()) if kb else {"features": {}}
+        slug = next((s for s, e in registry["features"].items() if e.get("ticket_id") == ticket_id), None)
+        for doc in entry["docs"]:
+            path = kb / "features" / slug / doc if kb and slug else None
+            print(f"\n===== {doc} =====\n")
+            print(path.read_text() if path and path.is_file() else "(not found on the ticket's branch)")
+    if entry["assumptions"]:
+        print("\nAssumptions:")
+        for n, assumption in enumerate(entry["assumptions"], 1):
+            print(f"  A{n}. {assumption}")
+    if entry["questions"]:
+        print("\nQuestions:")
+        for q in entry["questions"]:
+            print(f"  {q['id']}. {q['question']}")
+            if q.get("why"):
+                print(f"      why: {q['why']}")
+            for option in q.get("options", []):
+                print(f"      - {option}")
+
+
+def cmd_review(args):
+    """The design stages' reviews waiting on a person: list them, show one, or respond."""
+    config.require_project()
+    import orchestrator
+    import trello_client
+    from state_store import locked, load_state
+
+    with locked():
+        reviews = load_state().get("reviews", {})
+    if args.review_command == "list":
+        pending = {t: e for t, e in reviews.items() if e["response"] is None}
+        if not pending:
+            print("No reviews waiting for you.")
+        for ticket_id, entry in pending.items():
+            try:
+                name = trello_client.get_card(ticket_id)["name"]
+            except Exception:  # noqa: BLE001 - a deleted card shouldn't break the listing
+                name = "(card not found)"
+            print(f"{name} ({ticket_id}): " + ", ".join(entry["docs"] or ["findings"]))
+            _print_review(entry)
+            print()
+        return
+
+    ticket_id = ticket_id_from(args.ticket)
+    if args.review_command == "show":
+        entry = reviews.get(ticket_id)
+        if not entry:
+            sys.exit("That ticket has no review waiting.")
+        try:
+            print(f"{trello_client.get_card(ticket_id)['name']} ({ticket_id})")
+        except Exception:  # noqa: BLE001 - the review itself is local
+            print(ticket_id)
+        _print_review(entry, show_docs=True, ticket_id=ticket_id)
+        return
+
+    if sum(bool(x) for x in (args.approve, args.answers or args.changes, args.escalate)) != 1:
+        sys.exit("Respond with one of: --approve; --answers and/or --changes; --escalate.")
+    answers = None
+    if args.answers:
+        try:
+            answers = json.loads(args.answers)
+        except ValueError as exc:
+            sys.exit(f"--answers isn't valid JSON: {exc}")
+        if not isinstance(answers, dict):
+            sys.exit('--answers must be an object of question id to answer, e.g. {"Q1": "yes"}')
+    try:
+        emit(orchestrator.cmd_respond(ticket_id, "approve" if args.approve else "revise", answers,
+                                      args.changes, args.escalate))
+    except ValueError as exc:
+        sys.exit(str(exc))
+
+
+def cmd_release(args):
+    """Show or set the release a ticket ships in, recorded on its card as a [RELEASE] comment."""
+    config.require_project()
+    import releases
+    import trello_client
+    from state_store import locked, load_seen_comments, save_seen_comments
+
+    ticket_id = ticket_id_from(args.ticket)
+    card_name = trello_client.get_card(ticket_id)["name"]
+    current = releases.release_of(trello_client.get_card_comments(ticket_id))
+    if not args.version:
+        print(f"{card_name} ({ticket_id}): " + (f"release {current} ({releases.branch_name(current)})"
+                                                if current else "no release recorded"))
+        return
+    try:
+        text = releases.comment_text(ticket_id, args.version, "person")
+    except ValueError as exc:
+        sys.exit(str(exc))
+    version = releases.validate_version(args.version)
+    if version == current:
+        print(f"{card_name} ({ticket_id}) is already in release {version}.")
+        return
+    with locked():
+        seen = load_seen_comments()
+        comment = trello_client.add_comment(ticket_id, text)
+        seen.setdefault(ticket_id, []).append(comment["id"])
+        save_seen_comments(seen)
+    print(f"{card_name} ({ticket_id}) now ships in release {version}"
+          + (f" (was {current})" if current else "") + f"; Deploy merges it into {releases.branch_name(version)}.")
+    print("Recorded on the card. If the card is waiting in Human for a release, move it back to its stage.")
+
+
 def cmd_worktree(args):
     """Each ticket's worktree: list them, or remove one whose work is all pushed."""
     config.require_project()
@@ -502,6 +611,23 @@ def main():
     skip.add_argument("--clear", action="store_true", help="stop skipping; without --stages, clears them all")
     skip.add_argument("--show", action="store_true", help="show what's skipped right now")
 
+    review = sub.add_parser("review", help="the design stages' drafts waiting for your review")
+    review_sub = review.add_subparsers(dest="review_command", required=True)
+    review_sub.add_parser("list", help="every review waiting for you")
+    show_review = review_sub.add_parser("show", help="print a review: the draft docs, assumptions and questions")
+    show_review.add_argument("--ticket", required=True, help="card URL, short link or id")
+    respond = review_sub.add_parser("respond", help="record your response for the stage's next run")
+    respond.add_argument("--ticket", required=True, help="card URL, short link or id")
+    respond.add_argument("--approve", action="store_true", help="the draft stands as written")
+    respond.add_argument("--answers", help='answers as a JSON object, e.g. \'{"Q1": "yes", "Q2": "1.4.0"}\'')
+    respond.add_argument("--changes", help="what should change, in your words")
+    respond.add_argument("--escalate", action="store_true",
+                         help="send the ticket to Human with the questions on the card instead")
+
+    release = sub.add_parser("release", help="show or set the release a ticket ships in")
+    release.add_argument("--ticket", required=True, help="card URL, short link or id")
+    release.add_argument("--version", help="the release, e.g. 1.4.0 (omit to show the current one)")
+
     worktree = sub.add_parser("worktree", help="each ticket's git worktree and branch")
     worktree_sub = worktree.add_subparsers(dest="worktree_command", required=True)
     worktree_sub.add_parser("list", help="every ticket worktree, and whether its work is committed and pushed")
@@ -542,6 +668,10 @@ def main():
         cmd_router(args)
     elif args.command == "skip":
         cmd_skip(args)
+    elif args.command == "review":
+        cmd_review(args)
+    elif args.command == "release":
+        cmd_release(args)
     elif args.command == "worktree":
         cmd_worktree(args)
     elif args.command == "render":

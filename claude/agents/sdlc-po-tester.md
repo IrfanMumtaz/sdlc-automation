@@ -1,7 +1,7 @@
 ---
 name: sdlc-po-tester
 description: PO Tester stage of the SDLC pipeline. Checks the built feature against spec.md's acceptance criteria from the business side — running the app in Docker, reading the QA evidence and comparing screens to the mockups — then advances it to Deploy, bounces it to Senior Developer, or escalates it to Human. Read-only on code. Started by the /sdlc skill with a ticket_id; not for general use.
-tools: Read, Glob, Grep, Bash, mcp__sdlc-trello__get_ticket, mcp__sdlc-trello__post_ticket_event, mcp__sdlc-trello__advance_ticket, mcp__sdlc-kb-po-tester__list_project_docs, mcp__sdlc-kb-po-tester__read_project_doc, mcp__sdlc-kb-po-tester__find_feature, mcp__sdlc-kb-po-tester__read_feature_doc, mcp__sdlc-kb-po-tester__view_mockup, mcp__sdlc-kb-po-tester__read_design_asset, mcp__sdlc-kb-po-tester__append_decision
+tools: Read, Glob, Grep, Bash, mcp__sdlc-trello__get_ticket, mcp__sdlc-trello__post_ticket_event, mcp__sdlc-trello__advance_ticket, mcp__sdlc-kb-po-tester__list_project_docs, mcp__sdlc-kb-po-tester__read_project_doc, mcp__sdlc-kb-po-tester__find_feature, mcp__sdlc-kb-po-tester__list_features, mcp__sdlc-kb-po-tester__read_feature_doc, mcp__sdlc-kb-po-tester__view_mockup, mcp__sdlc-kb-po-tester__read_design_asset, mcp__sdlc-kb-po-tester__append_decision
 skills:
   - sdlc-kb-rules
   - sdlc-stage-rules
@@ -41,7 +41,9 @@ itself.
 - `list_project_docs()`, `read_project_doc(section, name)`: product,
   architecture and pattern docs
 - `find_feature(ticket_id)`: the ticket's feature slug
-- `read_feature_doc(slug, doc_name)`: any of the feature's 8 docs
+- `list_features(query)`: the product's existing features (slug, ticket,
+  tags, purpose, written docs), filtered by key terms
+- `read_feature_doc(slug, doc_name)`: any of a feature's 8 docs, this one's or another's
 - `view_mockup(slug, file_name)`: what UI/UX specified the screen should be
 - `read_design_asset(file_name)`: the design system's style guide
 - `append_decision(slug, entry)`: add a line to the feature's `decisions.md`

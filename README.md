@@ -153,6 +153,81 @@ To limit a project permanently rather than per run, set `stages` in
 `.sdlc/config.json`; listed order counts there too. On the command line it's
 `sdlc next --only "PO,BA"`.
 
+### When product knowledge changes
+
+Project docs record decisions, and decisions change. You can change one in
+two ways:
+
+- **Directly:** run `/sdlc-kickoff <area>` (e.g. `product`), approve the new
+  wording, then commit and push it to the development branch.
+- **From a ticket:** when a ticket needs something a project doc rules out,
+  the design stage asks you in `/sdlc` whether the doc has changed. If you
+  say yes, it records an `APPROVED CHANGE:` in the feature's `decisions.md`
+  and carries on with the new rule. The Knowledge Base Writer stage writes
+  it into the project doc. If a change nobody approved reaches the Knowledge
+  Base Writer, it asks you.
+
+Either way, the change reaches every ticket on its next dispatch:
+- When a Knowledge Base Writer run finishes, the router publishes the
+  project docs it wrote (`product/`, `architecture/`, `patterns/` and their
+  `registry.json` entries) straight to the development branch. Nothing else
+  from the ticket is published: its feature docs and code wait for its
+  release.
+- Before each dispatch, the router merges the latest development branch into
+  the ticket's branch.
+
+If someone else changed the same doc on the development branch in the
+meantime, nothing is published; `/sdlc` reports the conflicting files for
+you to reconcile. If your own checkout has the development branch checked
+out, it isn't touched: pull to get the docs.
+
+### Reviewing the design stages' drafts
+
+PO, BA, UI/UX and Solution Architect work with you the way the
+`/sdlc-kickoff` specialists do. None of them advances a ticket on its own
+assumptions:
+
+1. The agent does its whole job first and writes a complete draft (PO's
+   definition and spec, BA's findings, UI/UX's `ux.md` and mockups, the
+   Solution Architect's `technical.md` and `flow.md`). It fills in what its
+   sources state. Anything else it either assumes and lists, or marks `TBD`
+   and asks about.
+2. It pauses with a review: the draft in full, numbered assumptions, numbered
+   questions (with the answers it would accept), and the outcome it proposes.
+   Nothing is posted on the card, and the card stays in its list.
+3. `/sdlc` shows you the review and asks for your answers and a verdict:
+   **Approve**, **Change something**, **Answer later** or **Send to Human**.
+4. `/sdlc` continues the same agent with your response, so it keeps all its
+   context. It records your answers in `decisions.md`, revises the draft and
+   comes back with the next round, showing what changed first.
+5. When you approve, it records `APPROVED: … (review round n)` with the
+   assumptions you confirmed, then advances the ticket or bounces it, as
+   proposed. A draft with an open question or a `TBD` can't be approved; it
+   goes round again.
+
+The Knowledge Base Writer uses the same route when it needs a decision from
+you, such as approving a change to a decided fact.
+
+**Answer later** ends the agent's run. The drafts stay on the ticket's
+branch, the card waits in its list, and the next `/sdlc` run brings the
+review back to you; a fresh agent then picks up from your response.
+**Send to Human** moves the card to Human with the questions and
+assumptions on it. From a terminal:
+
+```
+sdlc review list                                   # every review waiting for you
+sdlc review show --ticket <url|id>                 # the draft docs, assumptions and questions
+sdlc review respond --ticket <url|id> --answers '{"Q1": "1.4.0"}' --changes "call it Download CSV"
+sdlc review respond --ticket <url|id> --approve    # only for a round with no questions
+sdlc review respond --ticket <url|id> --escalate   # send it to Human instead
+```
+
+While an agent waits for your review, its stage counts as busy, so another
+ticket in the same stage waits too. Reviews left for later live in
+`.sdlc/state/`, not on the board; if that folder is lost, the agent runs
+again and asks again. Later stages (Senior Developer onward) still escalate
+on the card, and bounces between agents stay as comments.
+
 ### Skipping a stage
 
 A stage can be skipped — for one ticket, or for every ticket in the project.
@@ -228,8 +303,11 @@ your own checkout never changes branch.
   `[BRANCH]` comment.
 - Every later dispatch of that ticket reuses the worktree, first
   fast-forwarding it to what earlier stages pushed, from this machine or
-  another. If the local and pushed branches have diverged, the ticket
-  escalates to **Human**: the pipeline never merges, rebases or force-pushes.
+  another, then merging in the latest development branch, so every stage
+  sees current project docs and features. If the local and pushed branches
+  have diverged, or the development branch conflicts with the ticket's
+  branch, the ticket escalates to **Human**: the pipeline never rebases or
+  force-pushes.
 - The agent works only there. Knowledge base tools read and write that
   ticket's copy of the knowledge base, and code stages get the worktree path,
   the branch and a per-ticket Docker Compose project name in their prompt.
@@ -246,8 +324,9 @@ starts from it; `sdlc next` stops and says so if it isn't. Commit
 `.sdlc/.gitignore` too, once `worktrees/` is added to it.
 
 Nothing is merged into your development branch, and nothing is deployed; that
-stays with you. Review and merge each ticket's branch when it's done, then
-remove its worktree:
+stays with you. The Deploy stage merges each finished ticket into its release
+branch and opens the release's pull request (see [Releases](#releases)); you
+review and merge that pull request. Then remove the ticket's worktree:
 
 ```
 sdlc worktree list                          # every ticket's worktree: clean? pushed?
@@ -256,6 +335,45 @@ sdlc worktree remove --ticket <url|id>      # refuses if anything is uncommitted
 
 A ticket started before per-ticket worktrees keeps its `feature/<slug>`
 branch. Switch your own checkout off that branch so it can get a worktree.
+
+### Releases
+
+Every ticket ships in a named release, recorded on its card the same way its
+branch is:
+
+```
+[RELEASE] ticket=#123 version="1.4.0" by="PO"
+```
+
+- **PO records it.** If the requester named a release (in the description or
+  a comment), PO records it with a `[RELEASE]` comment. If nobody did, PO
+  writes the spec and then asks you for one in the `/sdlc` session (see
+  [Reviewing the design stages' drafts](#reviewing-the-design-stages-drafts)). It
+  never picks a version itself. You can also set or change it yourself:
+
+  ```
+  sdlc release --ticket <url|id> --version 1.4.0   # set or change it (the latest comment wins)
+  sdlc release --ticket <url|id>                   # show it
+  ```
+- **Deploy merges it.** After the checks pass, Deploy merges the ticket's
+  branch into `release/<version>` (`--no-ff`) in every repository the ticket
+  changed, and pushes it. The first ticket in a release creates the branch
+  from the development branch. Every repository is checked for conflicts
+  first: if any would conflict, nothing is merged and the card escalates with
+  the conflicting files. The knowledge base's `registry.json`, where every
+  ticket adds its feature, is merged entry by entry, so tickets sharing a
+  release don't conflict over it. Release branches have their own worktrees under
+  `.sdlc/worktrees/release-<version>/`.
+- **Deploy opens the pull request.** One pull request per repository, from
+  `release/<version>` into the development branch, using the host the origin
+  remote points at (`gh` for GitHub, `glab` for GitLab, `az repos` for Azure
+  DevOps). Later tickets in the same release add themselves to its
+  description. The host's CLI must be installed and signed in on the machine
+  running `/sdlc`. Otherwise Deploy still merges and pushes, then escalates
+  with the compare link.
+- A card in Deploy with no release escalates.
+- Nothing merges a pull request or deploys: you review the release's pull
+  request and merge it when the release is ready.
 
 ### Microservices: one repository per service
 
@@ -306,10 +424,11 @@ repository**:
   every ticket sees the same file, and agents never change it.
 - The Solution Architect names the services a change touches. Code Analyst
   reviews each changed repository and the contracts between them. Deploy
-  lists every repository's branch head, the release order and each service's
-  rollback.
+  merges the ticket into the release branch in each repository it changed,
+  opens a pull request in each, and lists the release order and each
+  service's rollback.
 
-Merge a finished ticket's branch in each repository it was pushed to.
+Merge each repository's release pull request when the release is ready.
 
 ## How `/sdlc` works
 
@@ -335,7 +454,7 @@ Merge a finished ticket's branch in each repository it was pushed to.
 | Test Scenario Writer | `sdlc-test-scenario-writer` | spec, `definition.md`, `ux.md`, `technical.md`, `flow.md`, business rules, personas, the code | `test-scenarios.md` — field-level, unit, integration, system, end-to-end and UAT scenarios with IDs and an acceptance-criteria coverage table; behaviour only, no automation code | Automated QA / PO or UI/UX |
 | Automated QA | `sdlc-automated-qa` | `test-scenarios.md`, `patterns/testing`, the branch | **test code in the repo** for every scenario at every level, the whole suite run in Docker, a per-scenario test report on the card; any failing test goes back to Senior Developer | PO Tester / Senior Developer or Test Scenario Writer |
 | PO Tester | `sdlc-po-tester` | spec, `ux.md` and mockups, QA evidence, **the running app** | a verdict and evidence per acceptance criterion | Deploy / Senior Developer or PO |
-| Deploy | `sdlc-deploy` | the diff, architecture docs, the pushed branch | `deployment.md` (what's changing, rollback plan, approval request) | **Human** — it never deploys |
+| Deploy | `sdlc-deploy` | the diff, architecture docs, the pushed branch, the card's release | the ticket merged into `release/<version>` and pushed, the release's pull request into the development branch, `deployment.md` (what's changing, release, rollback plan, approval request) | **Human** — it never deploys or merges the pull request |
 
 PO also keeps the card readable: it appends a summary block (purpose, actors,
 priority, acceptance criteria, out of scope, and where the full spec lives)
@@ -357,7 +476,7 @@ findings back.
   flags its MCP servers start with (`sdlc mcp kb ...`, `sdlc mcp trello ...`),
   not by prompts: `--allow` (feature docs it may write; only PO can create
   feature folders), `--append-decisions`, `--mockups` and `--attach-mockups`
-  (UI/UX only), `--summary` (PO only), `--test-report` (Automated QA only),
+  (UI/UX only), `--summary` and `--release` (PO only), `--test-report` (Automated QA only), `--merge-release` (Deploy only),
   `--project-write` (Knowledge Base Writer only). A subagent's
   `tools:` list controls built-in tools (Read, Bash, ...) but doesn't hide its
   own MCP servers' tools, so every server tool that isn't gated by a flag is
@@ -370,18 +489,29 @@ findings back.
   branch and worktree off the project's development branch
   (`development_branch` in `.sdlc/config.json`, or the first of `develop`,
   `development`, `main`, `master`); see [One branch per ticket](#one-branch-per-ticket).
-  Commits are pushed; nothing is ever merged, tagged or deployed, and builds
-  and tests run in the project's own Docker setup, one Compose project per
-  ticket. Deployment is
-  human-gated: the Deploy stage prepares the request and hands the card to
-  **Human**.
+  Commits are pushed. The only merge is Deploy's, into the ticket's
+  release branch. Nothing is merged into the development branch, tagged or
+  deployed, and builds and tests run in the project's own Docker setup, one
+  Compose project per ticket. Deployment is human-gated: the Deploy stage
+  merges into the release, opens the release's pull request, prepares the
+  request and hands the card to **Human**.
 - **Escalations are real.** A ticket bounced `bounce_cap` times moves to
   **Human** with `[ESCALATION: bounce-cap]`; a `[MISMATCH]` moves it there with
   `[ESCALATION: routing-mismatch]`; a run that ends without an event comment
-  moves it there with `[ESCALATION: agent-stuck]`.
+  (and without questions for you) moves it there with
+  `[ESCALATION: agent-stuck]`.
 - **Agents know the product through the knowledge base.** PO escalates if
   `product/overview.md` is still a template; the Solution Architect escalates
   if the architecture docs are.
+- **Agents build on the features already there.** Every stage looks up the
+  related features with `list_features` (a search over each feature's slug,
+  tags, definition and spec), and reads the docs its job needs. PO and BA
+  read their specs, UI/UX their `ux.md` and mockups, and the Solution
+  Architect their `technical.md`, `flow.md` and `decisions.md`. New work
+  reuses their terms, rules, screens and designs. Any change to an existing
+  feature is stated, and the spec names its related features so later stages
+  read the same ones. Only features merged into the development branch are
+  visible to a new ticket.
 
 ### Models and cost
 
@@ -400,7 +530,7 @@ Each agent file sets its own:
 | `sdlc-test-scenario-writer` | sonnet | Turns acceptance criteria into checkable scenarios |
 | `sdlc-automated-qa` | opus | Automates the scenarios and decides what a failure means |
 | `sdlc-po-tester` | opus | Judges the built feature against what was actually asked for |
-| `sdlc-deploy` | sonnet | Writes the release request and the rollback plan |
+| `sdlc-deploy` | sonnet | Merges the ticket into its release branch, opens the release PR, writes the release request and rollback plan |
 | `sdlc-kickoff-*` | opus | Run once per project, and everything else reads what they produce |
 
 Override per project with `models` in `.sdlc/config.json` (stage names are

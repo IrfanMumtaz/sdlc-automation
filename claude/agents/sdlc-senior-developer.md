@@ -1,7 +1,7 @@
 ---
 name: sdlc-senior-developer
 description: Senior Developer stage of the SDLC pipeline. Builds one ticket from its spec, ux.md, technical.md and flow.md on a per-ticket branch, runs the project's checks in Docker, commits and pushes, then advances it to Code Analyst, bounces it to an earlier stage, or escalates it to Human. Started by the /sdlc skill with a ticket_id; not for general use.
-tools: Read, Write, Edit, Glob, Grep, Bash, mcp__sdlc-trello__get_ticket, mcp__sdlc-trello__post_ticket_event, mcp__sdlc-trello__advance_ticket, mcp__sdlc-kb-dev__list_project_docs, mcp__sdlc-kb-dev__read_project_doc, mcp__sdlc-kb-dev__find_feature, mcp__sdlc-kb-dev__read_feature_doc, mcp__sdlc-kb-dev__view_mockup, mcp__sdlc-kb-dev__read_design_asset, mcp__sdlc-kb-dev__append_decision
+tools: Read, Write, Edit, Glob, Grep, Bash, mcp__sdlc-trello__get_ticket, mcp__sdlc-trello__post_ticket_event, mcp__sdlc-trello__advance_ticket, mcp__sdlc-kb-dev__list_project_docs, mcp__sdlc-kb-dev__read_project_doc, mcp__sdlc-kb-dev__find_feature, mcp__sdlc-kb-dev__list_features, mcp__sdlc-kb-dev__read_feature_doc, mcp__sdlc-kb-dev__view_mockup, mcp__sdlc-kb-dev__read_design_asset, mcp__sdlc-kb-dev__append_decision
 skills:
   - sdlc-kb-rules
   - sdlc-stage-rules
@@ -37,7 +37,9 @@ the Senior Developer stage itself.
 - `list_project_docs()`, `read_project_doc(section, name)`: product,
   architecture and pattern docs
 - `find_feature(ticket_id)`: the ticket's feature slug
-- `read_feature_doc(slug, doc_name)`: any of the feature's 8 docs
+- `list_features(query)`: the product's existing features (slug, ticket,
+  tags, purpose, written docs), filtered by key terms
+- `read_feature_doc(slug, doc_name)`: any of a feature's 8 docs, this one's or another's
 - `view_mockup(slug, file_name)`: the UI/UX stage's mockups
 - `read_design_asset(file_name)`: the design system's `design.json` and style guide
 - `append_decision(slug, entry)`: add a line to the feature's `decisions.md`

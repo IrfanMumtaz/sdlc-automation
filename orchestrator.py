@@ -10,18 +10,33 @@ model itself.
   sdlc finish    Close out one agent run. If the agent left no event comment,
                  escalate the card to Human so the agent isn't left busy.
   sdlc recover   Close out runs an earlier, interrupted session never finished.
+  sdlc review    Show, and record a person's response to, a design stage's review.
+
+The design stages (PO, BA, UI/UX, Solution Architect) review their drafts with
+a person before they advance, the way /sdlc-kickoff specialists do: they
+write the draft, leave its assumptions and questions with the router (the
+request_review tool) and pause. /sdlc shows the person the draft, relays the
+response, and continues the same agent, round after round, until the person
+approves. The Knowledge Base Writer uses the same tool for the odd question.
+If the person leaves a review for later, `finish` keeps it (result
+"review"), the card stays in its list and isn't dispatched again until
+`sdlc review respond` records a response, which its next dispatch carries.
 
 Up to the project's max_active_agents runs can be in progress at once. Every
 command holds the project's state lock, so commands never overlap.
 
 Each ticket works on its own branch in its own git worktree (worktrees.py):
-`next` prepares it before dispatching, and `finish` commits the stage's
-knowledge base changes on it and pushes it.
+`next` prepares it before dispatching, merging in the latest development
+branch, and `finish` commits the stage's knowledge base changes on it and
+pushes it. After the Knowledge Base Writer, `finish` also publishes the
+project docs it recorded to the development branch (kb_publish.py), so every
+other ticket picks them up on its next dispatch.
 """
 
 import logging
 
 import config
+import kb_publish
 import worktrees
 from trello_client import (
     get_cards_on_board, get_card, get_card_comments, add_comment, move_card, get_open_lists,
@@ -33,6 +48,7 @@ from state_store import (
     any_agent_busy_with, increment_bounce,
     ticket_skips, add_ticket_skips, remove_ticket_skips,
     session_alive,
+    ticket_review, set_response, clear_review, awaiting_person,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -188,6 +204,9 @@ def handle_event(state, seen, card, event):
             known = state.setdefault("pushed_repos", {}).setdefault(card_id, [])
             known += [r for r in pushed if r not in known]
 
+    elif etype == "RELEASE":
+        pass  # read from the card when Deploy merges (releases.py); nothing to track
+
     elif etype == "MISMATCH":
         log.warning(
             f"MISMATCH: {agent} reported wrong assignment on ticket "
@@ -218,10 +237,22 @@ def settle(state, seen, agent_name, card_id):
     """
     card = get_card(card_id)
     events = process_new_comments(state, seen, card)
+    review = ticket_review(state, card_id)
 
     if not any_agent_busy_with(state, card_id):
+        # The run ended with an event: the review it was in is over (its
+        # outcome is in decisions.md).
+        if review and review["stage"] == agent_name:
+            clear_review(state, card_id)
         # the agent may have moved the card after we fetched it
         return {"result": "recorded", "events": events, "list": list_name_for(get_card(card_id)["idList"])}
+
+    if review and review["stage"] == agent_name and review["response"] is None:
+        log.info(f"REVIEW: {agent_name} is waiting for a person's review (round {review['round']}) of ticket "
+                 f"{card['name']} ({card_id}); the card waits in its list.")
+        mark_agent_idle(state, agent_name)
+        return {"result": "review", "ticket_name": card["name"], "review": review,
+                "list": list_name_for(card["idList"])}
 
     log.warning(f"{agent_name} ended on ticket {card['name']} ({card_id}) without an event comment. Escalating.")
     escalate(seen, card, "agent-stuck",
@@ -305,6 +336,7 @@ def pick_next(state, cards, only=None):
         eligible = [
             c for c in cards
             if c["idList"] == agent_list_id and not any_agent_busy_with(state, c["id"])
+            and not awaiting_person(state, c["id"], agent_name)
         ]
         if not eligible:
             continue
@@ -354,6 +386,8 @@ def pick_ticket(state, cards, ticket_id):
         return {"action": "idle", "reason": f"'{where}' isn't a pipeline stage, so no agent runs there", **detail}
     if where not in config.AGENT_SUBAGENTS:
         return {"action": "idle", "reason": f"no agent is built for the {where} stage", **detail}
+    if awaiting_person(state, ticket_id, where):
+        return {"action": "idle", "reason": f"the {where} stage is waiting for your review of its draft", **detail}
     if not is_agent_idle(state, where):
         return {"action": "wait", "running": busy_runs(state), **detail}
     if sum(1 for a in state["agents"].values() if a["status"] == "busy") >= config.MAX_ACTIVE_AGENTS:
@@ -388,6 +422,24 @@ def record_branch(seen, ticket_id, branch, pushed_repos):
     seen.setdefault(ticket_id, []).append(comment["id"])  # the caller already applied it
 
 
+def pending_reviews(state, cards):
+    """
+    Reviews still waiting for a person, for the cards in view. An entry whose
+    card has left the stage that asked (a person moved it) is dropped.
+    """
+    by_id = {c["id"]: c for c in cards}
+    pending = []
+    for ticket_id, entry in list(state.get("reviews", {}).items()):
+        card = by_id.get(ticket_id)
+        if card is None:
+            continue
+        if list_name_for(card["idList"]) != entry["stage"] and not any_agent_busy_with(state, ticket_id):
+            clear_review(state, ticket_id)
+        elif entry["response"] is None and not any_agent_busy_with(state, ticket_id):
+            pending.append({"ticket_id": ticket_id, "ticket_name": card["name"], **entry})
+    return pending
+
+
 def busy_runs(state):
     runs = []
     for name, info in state["agents"].items():
@@ -415,6 +467,7 @@ def cmd_next(only=None, ticket_id=None, session_id=None, session_pid=None):
         skipped = apply_skips(state, seen, [c for c in cards if not ticket_id or c["id"] == ticket_id])
 
         stages = runnable_stages(only)
+        reviews = pending_reviews(state, [c for c in cards if not ticket_id or c["id"] == ticket_id])
         escalated = []
         while True:
             if ticket_id:
@@ -423,7 +476,8 @@ def cmd_next(only=None, ticket_id=None, session_id=None, session_pid=None):
                     save_state(state)
                     save_seen_comments(seen)
                     return {**chosen, "ticket_only": ticket_id, **({"skipped": skipped} if skipped else {}),
-                            **({"escalated": escalated} if escalated else {})}
+                            **({"escalated": escalated} if escalated else {}),
+                            **({"reviews": reviews} if reviews else {})}
             else:
                 chosen = pick_next(state, cards, only)
             if not chosen:
@@ -458,6 +512,9 @@ def cmd_next(only=None, ticket_id=None, session_id=None, session_pid=None):
             if model and config.is_model_family(model):
                 result["model"] = model.strip().lower()
             # a version is on the project's copy of the agent file (agent_versions.py)
+            review = ticket_review(state, card["id"])
+            if review and review["stage"] == agent_name and review["response"] is not None:
+                result["review"] = {"round": review["round"], **review["response"]}
             if ticket_id:
                 result["ticket_only"] = ticket_id
         elif busy_runs(state):
@@ -475,6 +532,8 @@ def cmd_next(only=None, ticket_id=None, session_id=None, session_pid=None):
             if missing:
                 result["no_agent_built"] = missing
 
+        if reviews:
+            result["reviews"] = reviews
         if skipped:
             result["skipped"] = skipped
         if escalated:
@@ -504,6 +563,12 @@ def record_work(state, seen, agent_name, ticket_id, outcome):
         if new:
             known += new
             record_branch(seen, ticket_id, result["branch"], known)
+        if agent_name == "Knowledge Base Writer" and outcome == "recorded":
+            # Shared facts don't wait for the ticket's release.
+            try:
+                result["project_docs"] = kb_publish.publish(state, ticket_id, name)
+            except Exception as exc:  # noqa: BLE001 - reported; the branch still has the docs
+                result["project_docs"] = {"published": "nothing", "reason": str(exc)}
         return result
     except Exception as exc:  # noqa: BLE001 - report it; the run itself is already settled
         log.warning(f"Couldn't record {agent_name}'s work on ticket {ticket_id}: {exc}")
@@ -516,6 +581,62 @@ def cmd_finish(agent_name, ticket_id):
         seen = load_seen_comments()
         result = {"agent": agent_name, "ticket_id": ticket_id, **settle(state, seen, agent_name, ticket_id)}
         result["git"] = record_work(state, seen, agent_name, ticket_id, result["result"])
+        save_state(state)
+        save_seen_comments(seen)
+        return result
+
+
+def cmd_respond(ticket_id, verdict=None, answers=None, changes=None, escalate_to_human=False):
+    """
+    Record a person's response to a design stage's review, so the ticket's
+    next dispatch carries it: `verdict` is "approve" (only for a round with no
+    open questions) or "revise", with `answers` (question id -> answer, every
+    question) and/or `changes` (what the person wants different, in their
+    words). With escalate_to_human the card goes to Human instead, with the
+    questions in the escalation comment so whoever picks it up can read them.
+    """
+    with locked():
+        state = load_state()
+        seen = load_seen_comments()
+        entry = ticket_review(state, ticket_id)
+        if not entry or entry["response"] is not None:
+            raise ValueError("that ticket has no review waiting for a response")
+        card = get_card(ticket_id)
+        where = list_name_for(card["idList"])
+        if where != entry["stage"]:
+            clear_review(state, ticket_id)
+            save_state(state)
+            raise ValueError(f"the card has moved from {entry['stage']} to {where}; its review no longer applies")
+
+        if escalate_to_human:
+            listed = "\n".join(f"{q['id']}. {q['question']}" for q in entry["questions"])
+            listed += "".join(f"\nA{n}. (assumption) {a}" for n, a in enumerate(entry["assumptions"], 1))
+            escalate(seen, card, "review",
+                     f'stage="{entry["stage"]}" ticket=#{ticket_id} '
+                     f'reason="{entry["stage"]} needs a person to review its draft (see decisions.md and the '
+                     f'feature docs); reply here and move the card back to {entry["stage"]}"\n\n{listed}')
+            clear_review(state, ticket_id)
+            result = {"ticket_id": ticket_id, "result": "escalated", "list": config.HUMAN_LIST}
+        else:
+            answers = answers or {}
+            changes = (changes or "").strip()
+            missing = [q["id"] for q in entry["questions"] if not str(answers.get(q["id"], "")).strip()]
+            if missing:
+                raise ValueError(f"no answer for {', '.join(missing)}; answer every question, "
+                                 f"or leave the whole review for later")
+            if verdict == "approve" and (entry["questions"] or changes):
+                raise ValueError("a round with questions or changes can't be approved as it stands: respond "
+                                 "with --revise, and approve the revised draft")
+            if verdict not in ("approve", "revise") or (verdict == "revise" and not (answers or changes)):
+                raise ValueError("respond with --approve, or --revise with answers and/or changes")
+            set_response(state, ticket_id, {
+                "verdict": verdict,
+                "answers": [{"id": q["id"], "question": q["question"], "answer": str(answers[q["id"]]).strip()}
+                            for q in entry["questions"]],
+                "changes": changes,
+            })
+            result = {"ticket_id": ticket_id, "result": verdict, "stage": entry["stage"],
+                      "next": f"the next `sdlc next` dispatches {entry['stage']} on it with the response"}
         save_state(state)
         save_seen_comments(seen)
         return result

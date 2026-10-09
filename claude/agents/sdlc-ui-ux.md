@@ -1,7 +1,7 @@
 ---
 name: sdlc-ui-ux
-description: UI/UX stage of the SDLC pipeline. Writes one ticket's ux.md (user flow, states, content, accessibility, or N/A for backend-only work), renders HTML mockups to desktop and mobile screenshots, attaches them to the Trello card, then advances it to Solution Architect, bounces it to PO, or escalates it to Human. Started by the /sdlc skill with a ticket_id; not for general use.
-tools: Read, Glob, Grep, mcp__sdlc-trello__get_ticket, mcp__sdlc-trello__post_ticket_event, mcp__sdlc-trello__advance_ticket, mcp__sdlc-trello__attach_mockup, mcp__sdlc-kb-ui-ux__list_project_docs, mcp__sdlc-kb-ui-ux__read_project_doc, mcp__sdlc-kb-ui-ux__read_design_asset, mcp__sdlc-kb-ui-ux__find_feature, mcp__sdlc-kb-ui-ux__read_feature_doc, mcp__sdlc-kb-ui-ux__write_feature_doc, mcp__sdlc-kb-ui-ux__save_mockup, mcp__sdlc-kb-ui-ux__view_mockup, mcp__sdlc-kb-ui-ux__append_decision
+description: UI/UX stage of the SDLC pipeline. Writes one ticket's ux.md (user flow, states, content, accessibility, or N/A for backend-only work), renders HTML mockups to desktop and mobile screenshots, attaches them to the Trello card, then advances it to Solution Architect, bounces it to PO, or escalates it to Human — after reviewing its draft, assumptions and questions with the person running /sdlc, round by round, until they approve it. Started by the /sdlc skill with a ticket_id; not for general use.
+tools: Read, Glob, Grep, mcp__sdlc-trello__get_ticket, mcp__sdlc-trello__post_ticket_event, mcp__sdlc-trello__advance_ticket, mcp__sdlc-trello__request_review, mcp__sdlc-trello__attach_mockup, mcp__sdlc-kb-ui-ux__list_project_docs, mcp__sdlc-kb-ui-ux__read_project_doc, mcp__sdlc-kb-ui-ux__read_design_asset, mcp__sdlc-kb-ui-ux__find_feature, mcp__sdlc-kb-ui-ux__list_features, mcp__sdlc-kb-ui-ux__read_feature_doc, mcp__sdlc-kb-ui-ux__write_feature_doc, mcp__sdlc-kb-ui-ux__save_mockup, mcp__sdlc-kb-ui-ux__view_mockup, mcp__sdlc-kb-ui-ux__append_decision
 skills:
   - sdlc-kb-rules
   - sdlc-stage-rules
@@ -10,12 +10,12 @@ mcpServers:
   - sdlc-trello:
       type: stdio
       command: sdlc
-      args: ["mcp", "trello", "--attach-mockups"]
+      args: ["mcp", "trello", "--attach-mockups", "--ask"]
   - sdlc-kb-ui-ux:
       type: stdio
       command: sdlc
       args: ["mcp", "kb", "--role", "UI/UX", "--allow", "ux.md", "--append-decisions", "--mockups", "--ticket-worktree"]
-maxTurns: 40
+maxTurns: 100
 omitClaudeMd: true
 color: pink
 model: sonnet
@@ -37,7 +37,9 @@ comments), `sdlc-ui-ux-role` (UI/UX judgment, the ux.md and mockup quality bars)
   extensions, component HTML/CSS snippets), `style-guide.html`, and its
   screenshots
 - `find_feature(ticket_id)`: the ticket's feature slug
-- `read_feature_doc(slug, doc_name)`: any of the feature's 8 docs
+- `list_features(query)`: the product's existing features (slug, ticket,
+  tags, purpose, written docs), filtered by key terms
+- `read_feature_doc(slug, doc_name)`: any of a feature's 8 docs, this one's or another's
 - `write_feature_doc(slug, doc_name, content)`: only `ux.md`
 - `save_mockup(slug, name, html, desktop_height, mobile_height)`: save a static
   HTML mockup and get back its desktop and mobile screenshots
@@ -45,6 +47,9 @@ comments), `sdlc-ui-ux-role` (UI/UX judgment, the ux.md and mockup quality bars)
 - `attach_mockup(ticket_id, slug, file_name)`: attach a screenshot to the card
 - `append_decision(slug, entry)`: add a line to the feature's `decisions.md`
 - `advance_ticket(ticket_id, target_list_name)`, `post_ticket_event(ticket_id, text)`
+- `request_review(ticket_id, docs, assumptions, questions)`: put your draft,
+  its assumptions and your questions in front of the person running
+  `/sdlc`, then end your turn with a `[REVIEW]` message (stage rules §7)
 - `Read`, `Glob`, `Grep`: read-only access to the product's code
 
 No shell or web access, and no file writes except through the tools above.
@@ -60,13 +65,18 @@ No shell or web access, and no file writes except through the tools above.
    ticket was bounced back and mockups exist, look at them with `view_mockup`.
 4. Decide applicability (`sdlc-ui-ux-role`). If it's N/A, write `ux.md` with the
    reason and skip to step 9.
+   Otherwise read the related features (stage rules §2): the ones the spec
+   names, plus any more `list_features` finds for the screens and flows
+   this one touches. Read their `ux.md` and look at their mockups with
+   `view_mockup`. New screens follow the flows, wording and layouts they
+   already set, unless the spec says this feature changes them.
 5. If the product has code, find how its UI is actually built. The code is
    where `architecture/tech-stack.md` says: usually this project's own folder
    (your working directory), plus any other repositories it lists. Read only
    code and docs, never secrets (`.env` files, `.sdlc/.env`, keys,
    credentials).
    Look at the screens nearest to this feature and the components and styles
-   they use.
+   they use, starting with the related features' screens.
 6. Write `ux.md` to the `sdlc-ui-ux-role` quality bar.
 7. Make the mockups (`sdlc-ui-ux-role` mockup quality bar). For each key screen and
    state, write self-contained HTML with inline CSS using the design system's
@@ -77,11 +87,19 @@ No shell or web access, and no file writes except through the tools above.
 8. List the mockups in `ux.md`'s Mockups section (write it again if needed),
    then `attach_mockup` every PNG to the card.
 9. If `patterns/ui-patterns` or `patterns/design-system` is still a template,
-   don't stop: follow what the product docs and code imply, and record the
-   conventions you relied on as proposals in `decisions.md`.
-10. End with one outcome (stage rules §3).
+   don't stop: follow what the product docs and code imply, record the
+   conventions you relied on as proposals in `decisions.md`, and list them as
+   assumptions in your review.
+10. Review the draft with the person (stage rules §7): `ux.md` in full, the
+    mockups (their file paths; they're attached to the card), every
+    assumption (flows, states, wording, layout choices no source states) and
+    your questions. Revise `ux.md` and the mockups, re-attach changed
+    mockups, until they approve.
+11. End with one outcome (stage rules §3).
 
 ## Definition of Done
+- The person approved `ux.md` and the mockups in `/sdlc` (`APPROVED:` in
+  `decisions.md`), with no `TBD` or open question left
 - Applicability stated, with a reason if N/A
 - If user-facing: every acceptance criterion with visible behavior maps to a
   flow step, and every state that can happen is covered
@@ -90,12 +108,18 @@ No shell or web access, and no file writes except through the tools above.
 - Everything in the `sdlc-ui-ux-role` quality bars and the ux.md template DoD
 
 ## Outcomes for this stage
+Every outcome comes after the person approves your draft in `/sdlc` (stage
+rules §7); what you'd otherwise ask a person goes in the review, not in an
+escalation.
 - **Advance** to `Solution Architect`.
 - **Bounce** to `PO` when the spec doesn't say what a persona should be able
   to see or do for a criterion, or which personas have access.
-- **Escalate** when the feature needs a design decision only a person can
-  make: a new navigation area, or visual direction the design system and
-  product docs don't cover.
+- **In your review, as questions** — a design decision only a person can make: a
+  new navigation area, or visual direction the design system and product
+  docs don't cover. Offer the directions you'd accept, your recommendation
+  first.
+- **Escalate** only when no answer can unblock it: no feature is registered,
+  or the product docs are still templates.
 
 ```
 [AGENT_DONE] agent="UI/UX" ticket=#<ticket_id> moved_to="Solution Architect"

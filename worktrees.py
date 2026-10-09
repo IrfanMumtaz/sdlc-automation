@@ -280,6 +280,31 @@ def _sync_with_remote(repo, path, branch):
     return f"pulled {behind} commit(s) from {remote}"
 
 
+def _sync_with_base(repo, path, branch):
+    """
+    Merge the latest development branch into the ticket's branch, so every
+    stage works with what's current there: project docs the Knowledge Base
+    Writer or a person updated since the branch was made, and features other
+    releases merged. A conflict is left for a person; nothing is merged then.
+    """
+    base, start = _start_point(repo)
+    if _ok("merge-base", "--is-ancestor", start, branch, cwd=path):
+        return None
+    if is_dirty(path):
+        return f"{start} has new commits, but the worktree has uncommitted changes, so they weren't merged in"
+    message = (f"Merge {base} into {branch}\n\nKeeps the ticket's branch up to date with the development "
+               f"branch.\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n")
+    merge = _git("merge", "--no-ff", "--quiet", "-m", message, start, cwd=path, check=False)
+    if merge.returncode != 0:
+        unmerged = _git("diff", "--name-only", "--diff-filter=U", cwd=path, check=False).stdout.split()
+        _git("merge", "--abort", cwd=path, check=False)
+        raise TicketGitProblem(f"{repo.name}: merging the latest {base} into {branch} conflicts"
+                               + (f" ({', '.join(unmerged[:10])})" if unmerged else
+                                  f": {' '.join((merge.stderr or merge.stdout).split())[:200]}")
+                               + ". Resolve it on the branch and push it, then move the card back.")
+    return f"merged the latest {start}"
+
+
 def _prepare_repo(repo, workspace, branch, pushed_before, is_kb):
     """One repository's worktree in the workspace, on the branch, up to date."""
     origin = has_origin(repo)
@@ -336,6 +361,14 @@ def _prepare_repo(repo, workspace, branch, pushed_before, is_kb):
                 warnings.append(f"the knowledge base has uncommitted changes in {repo.source}; ticket branches "
                                 f"only see what's committed to {base}.")
     synced = _sync_with_remote(repo, path, branch) if origin else "no remote"
+    try:
+        from_base = _sync_with_base(repo, path, branch)
+    except subprocess.CalledProcessError as exc:
+        raise TicketGitProblem(f"{repo.name}: couldn't merge {base} into {branch}: {_error_text(exc)}") from exc
+    if from_base and from_base.startswith("merged"):
+        synced += f"; {from_base}"
+    elif from_base:
+        warnings.append(f"{repo.name}: {from_base}")
     return {"path": str(path), "base": base, "git": f"{source}; {synced}"}, warnings
 
 

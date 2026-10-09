@@ -11,7 +11,9 @@ product is, how it's built, the conventions it follows, and one folder per
 feature. It lives inside the project (its path is in `.sdlc/config.json`)
 and travels with the code: in the pipeline, each ticket's knowledge base
 changes are committed on that ticket's branch by the router after each
-stage, and in kickoff a person reviews and commits them. Agents never
+stage (and the project docs the Knowledge Base Writer records are published
+to the development branch too, for every ticket), and in kickoff a person
+reviews and commits them. Agents never
 commit it themselves. Later agents treat what's in it as fact, so these rules apply to
 every role.
 
@@ -51,7 +53,8 @@ drift apart, and every agent ends up loading them twice.
 - Never fill a gap with something plausible. Later agents build on it as fact.
 - Keep what you inferred apart from what was stated.
 - What to do with an unknown depends on your job (kickoff agents mark it
-  `TBD` and ask; pipeline agents escalate). Your agent instructions say which.
+  `TBD` and ask; the pipeline's design stages ask the person running `/sdlc`;
+  later pipeline stages escalate). Your agent instructions say which.
 
 ## Templates
 Each doc starts with an HTML comment giving its owner, purpose and Definition

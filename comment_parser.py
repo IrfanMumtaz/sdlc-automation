@@ -24,6 +24,11 @@ The router also records each ticket's git branch the first time it prepares one:
 repos lists every repository the branch has been pushed to so far; a new
 [BRANCH] comment is added whenever that list grows.
 
+The release a ticket ships in is recorded by the PO stage, or by a person
+through `sdlc release`; the latest one wins (see releases.py):
+
+  [RELEASE] ticket=#123 version="1.4.0" by="PO"
+
 Deliberately simple key="value" parsing — no need for a real grammar here, and a
 strict parser means malformed comments fail loudly instead of silently misrouting.
 """
@@ -73,6 +78,9 @@ def parse_comment(text):
 
     if text.startswith("[BRANCH]"):
         return {"type": "BRANCH", **_parse_kv(text)}
+
+    if text.startswith("[RELEASE]"):
+        return {"type": "RELEASE", **_parse_kv(text)}
 
     if text.startswith("[ESCALATION"):
         # subtype is inside the brackets, e.g. "[ESCALATION: bounce-cap]"

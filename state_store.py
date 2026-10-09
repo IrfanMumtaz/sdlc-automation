@@ -20,6 +20,11 @@ state.json shape:
   },
   "pushed_repos": {
      "abc123": ["knowledge-base", "orders-service"]
+  },
+  "reviews": {
+     "abc123": {"stage": "PO", "round": 2, "docs": ["spec.md"], "assumptions": ["..."],
+                "questions": [{"id": "Q1", "question": "...", "why": "...", "options": ["..."]}],
+                "response": null}
   }
 }
 
@@ -28,6 +33,13 @@ board's [SKIP] / [UNSKIP] comments if this file is lost. "branches" holds each
 ticket's git branch (its workspace is .sdlc/worktrees/<branch without feature/>)
 and "pushed_repos" the repositories it's on origin in, both rebuilt from the
 router's [BRANCH] comments.
+
+"reviews" is the one exception to rebuilding from Trello: a design stage's
+review with a person, kept off the card on purpose (the drafts themselves are
+on the ticket's branch). "response" stays null until the person responds in
+the /sdlc session. If it's lost, the card is still in that stage's list, so
+the agent runs again and asks for review again. Once the stage's run ends
+with an event comment, the review is over and the entry is dropped.
 
 seen_comments.json shape:
 {
@@ -178,3 +190,45 @@ def remove_ticket_skips(state, ticket_id, stages=None):
     else:
         skips.pop(ticket_id, None)
     return skips.get(ticket_id, [])
+
+
+# Stages that review their drafts with a person in the /sdlc session before
+# they advance, the way /sdlc-kickoff specialists do.
+REVIEW_STAGES = ["PO", "BA", "UI/UX", "Solution Architect"]
+# Stages that ask a person in the /sdlc session instead of escalating on the card.
+ASKING_STAGES = REVIEW_STAGES + ["Knowledge Base Writer"]
+
+
+def busy_stage_for(state, ticket_id):
+    """The stage currently running on a ticket, or None."""
+    for agent, info in state["agents"].items():
+        if info.get("status") == "busy" and info.get("ticket_id") == ticket_id:
+            return agent
+    return None
+
+
+def ticket_review(state, ticket_id):
+    """The ticket's open review ({stage, round, docs, assumptions, questions, response}), or None."""
+    return state.setdefault("reviews", {}).get(ticket_id)
+
+
+def set_review(state, ticket_id, stage, docs, assumptions, questions):
+    previous = ticket_review(state, ticket_id)
+    round_number = previous["round"] + 1 if previous and previous["stage"] == stage else 1
+    state["reviews"][ticket_id] = {"stage": stage, "round": round_number, "docs": docs,
+                                   "assumptions": assumptions, "questions": questions, "response": None}
+    return round_number
+
+
+def set_response(state, ticket_id, response):
+    state["reviews"][ticket_id]["response"] = response
+
+
+def clear_review(state, ticket_id):
+    state.setdefault("reviews", {}).pop(ticket_id, None)
+
+
+def awaiting_person(state, ticket_id, list_name):
+    """True when the ticket's stage is waiting for a person's response to its review, and the card is still there."""
+    entry = ticket_review(state, ticket_id)
+    return bool(entry and entry["response"] is None and entry["stage"] == list_name)

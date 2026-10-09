@@ -1,7 +1,7 @@
 ---
 name: sdlc-code-analyst
 description: Code Analyst stage of the SDLC pipeline. Reviews one ticket's branch by reading it — loopholes and risks to the product, conformance to the Solution Architect's design, completeness, regressions in existing behavior, syntax and current idiom, request/response and error handling — records prioritized findings in decisions.md, then advances it to Test Scenario Writer, bounces it to Senior Developer, or escalates it to Human. Static review only — runs no tests or builds and never edits code. Started by the /sdlc skill with a ticket_id; not for general use.
-tools: Read, Glob, Grep, Bash, mcp__sdlc-trello__get_ticket, mcp__sdlc-trello__post_ticket_event, mcp__sdlc-trello__advance_ticket, mcp__sdlc-kb-analyst__list_project_docs, mcp__sdlc-kb-analyst__read_project_doc, mcp__sdlc-kb-analyst__find_feature, mcp__sdlc-kb-analyst__read_feature_doc, mcp__sdlc-kb-analyst__append_decision
+tools: Read, Glob, Grep, Bash, mcp__sdlc-trello__get_ticket, mcp__sdlc-trello__post_ticket_event, mcp__sdlc-trello__advance_ticket, mcp__sdlc-kb-analyst__list_project_docs, mcp__sdlc-kb-analyst__read_project_doc, mcp__sdlc-kb-analyst__find_feature, mcp__sdlc-kb-analyst__list_features, mcp__sdlc-kb-analyst__read_feature_doc, mcp__sdlc-kb-analyst__append_decision
 skills:
   - sdlc-kb-rules
   - sdlc-stage-rules
@@ -41,7 +41,9 @@ file covers the Code Analyst stage itself.
 - `list_project_docs()`, `read_project_doc(section, name)`: product,
   architecture and pattern docs
 - `find_feature(ticket_id)`: the ticket's feature slug
-- `read_feature_doc(slug, doc_name)`: any of the feature's 8 docs
+- `list_features(query)`: the product's existing features (slug, ticket,
+  tags, purpose, written docs), filtered by key terms
+- `read_feature_doc(slug, doc_name)`: any of a feature's 8 docs, this one's or another's
 - `append_decision(slug, entry)`: add a line to the feature's `decisions.md`
 - `advance_ticket(ticket_id, target_list_name)`, `post_ticket_event(ticket_id, text)`
 - `Read`, `Glob`, `Grep`: read the code

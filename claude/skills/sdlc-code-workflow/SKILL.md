@@ -79,8 +79,9 @@ Host `git` is fine, and so is anything that only reads files.
 ## 3. The branch
 One branch per ticket, and the router owns it. Before you start, it created
 the branch from the latest development branch (or reused it, if an earlier
-stage made it), checked it out in the ticket's worktree, and pulled what
-earlier stages pushed. When you finish, it commits your knowledge base
+stage made it), checked it out in the ticket's worktree, pulled what
+earlier stages pushed, and merged in the latest development branch. When you
+finish, it commits your knowledge base
 changes on it and pushes it.
 
 - Check before working, in every repository you'll touch:
@@ -98,6 +99,13 @@ changes on it and pushes it.
 Never commit to the base branch. Never merge, rebase, cherry-pick, force-push,
 reset another stage's commits, delete a branch, or open a pull request. A
 person integrates the branch.
+
+The one exception is the Deploy stage, and only as its own instructions say:
+its `merge_into_release` tool merges the ticket's branch into the ticket's
+release branch (`release/<version>`) and pushes it, in a release workspace
+under `.sdlc/worktrees/release-<version>/`, and Deploy opens or updates the
+release's pull request into the development branch from there. Nobody in the
+pipeline merges into the development branch or merges a pull request.
 
 ## 4. Commits
 Commit the work of your stage before you advance the ticket, in each

@@ -141,6 +141,54 @@ def _save_registry(registry):
     (kb_root() / "registry.json").write_text(json.dumps(registry, indent=2) + "\n")
 
 
+MAX_FEATURE_MATCHES = 25
+PURPOSE_LINE = re.compile(r"\*\*One-line purpose:\*\*\s*(.+)")
+
+
+def _written_docs(slug):
+    """The feature's docs that hold more than their template."""
+    template_dir = kb_root() / "features" / "_template"
+    written = []
+    for name in sorted(ALL_FEATURE_DOCS):
+        path, template = _feature_dir(slug) / name, template_dir / name
+        if path.is_file() and (not template.is_file() or path.read_text() != template.read_text()):
+            written.append(name)
+    return written
+
+
+def feature_index(query=""):
+    """
+    Registered features as text, one block each: slug, ticket, tags, its
+    one-line purpose and which docs are written. With a query, only features
+    whose slug, tags, definition or spec mention its words, best match first.
+    """
+    words = [w for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 2]
+    rows = []
+    for slug, entry in sorted(_load_registry().get("features", {}).items()):
+        folder = _feature_dir(slug)
+        definition = (folder / "definition.md").read_text() if (folder / "definition.md").is_file() else ""
+        purpose = PURPOSE_LINE.search(definition)
+        purpose = purpose.group(1).strip() if purpose and "{" not in purpose.group(1) else "(not written yet)"
+        tags = entry.get("tags", [])
+        score = 0
+        if words:
+            spec = (folder / "spec.md").read_text() if (folder / "spec.md").is_file() else ""
+            haystack = " ".join([slug.replace("-", " "), " ".join(tags), definition, spec]).lower()
+            score = sum(1 for w in words if w in haystack)
+            if not score:
+                continue
+        rows.append((score, slug, f"{slug}  (ticket {entry.get('ticket_id', '?')}"
+                                  + (f", tags: {', '.join(tags)}" if tags else "") + f")\n"
+                                  f"  purpose: {purpose}\n"
+                                  f"  written: {', '.join(_written_docs(slug)) or 'nothing yet'}"))
+    if not rows:
+        return ("No features match that." if words else "No features are registered yet.")
+    rows.sort(key=lambda r: (-r[0], r[1]))
+    shown = rows[:MAX_FEATURE_MATCHES]
+    more = len(rows) - len(shown)
+    return "\n".join(r[2] for r in shown) + (f"\n... and {more} more; narrow the query." if more else "")
+
+
 def build_server(role_name: str, allowed_write_docs: set[str], project_write: bool,
                  append_decisions: bool = False, mockups: bool = False) -> FastMCP:
     """
@@ -171,6 +219,17 @@ def build_server(role_name: str, allowed_write_docs: set[str], project_write: bo
         if not path.exists():
             raise ValueError(f"{_rel(path)} does not exist")
         return path.read_text()
+
+    @mcp.tool()
+    def list_features(query: str = "") -> str:
+        """Find the product's existing features: the record of how it already
+        works. Each comes with its slug, ticket, tags, one-line purpose and
+        which of its docs are written; read them with read_feature_doc. Pass a
+        query of key terms (e.g. 'login password session') to get only the
+        features whose slug, tags, definition or spec mention them, best match
+        first; empty lists every feature. Only features merged into the
+        development branch, plus this ticket's, are in this knowledge base."""
+        return feature_index(query)
 
     @mcp.tool()
     def read_feature_doc(slug: str, doc_name: str) -> str:
